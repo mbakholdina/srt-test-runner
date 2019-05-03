@@ -142,6 +142,7 @@ def cleanup_process(name, process):
     
 def create_tshark(interface, output):
     args = ['tshark', '-i', interface, '-w', output]
+    #args = ['tshark', '-D']
     return create_process("tshark", args)
 
 
@@ -154,22 +155,24 @@ def main(dst_ip, dst_port, algdesc):
     #common_args = ["./srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
     #        "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
     common_args = ["./srt-test-messaging", "srt://{}:{}".format(dst_ip, dst_port), "",
-            "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
+            "-reply", "0", "-printmsg", "0"]
 
     pc_name = 'srt-test-messaging (SND)'
     target_time_s = 120
     expected_bitrate_bps = 1000000000 # 1 Gbps
+    message_size = 8 * 1024 * 1024
 
-    for i in range(0, 1):
+    for i in range(0, 5):
         # Calculate number of packets for 20 sec of streaming
         # based on the target bitrate and packet size.
-        repeat = target_time_s * expected_bitrate_bps // (1456 * 8)
+        repeat = target_time_s * expected_bitrate_bps // (message_size * 8)
         maxbw  = int(expected_bitrate_bps // 8 * 1.25)
         args = common_args + ["-repeat", str(repeat)]
         logger.info("Starting with bitrate {}, repeat {}".format(expected_bitrate_bps, repeat))
 
-        pcapng_file = "win-to-centos-alg-{}-take-{}.pcapng".format(algdesc, i)
-        tshark = create_tshark(interface = '2', output = pcapng_file)
+        pcapng_file = "D:\\tests\\winzotac-to-centos-alg-{}-take-{}.pcapng".format(algdesc, i)
+        tshark = create_tshark(interface = '4', output = pcapng_file)
+        time.sleep(3)
 
         snd_srt_process = create_process(pc_name, args)
 
@@ -182,6 +185,7 @@ def main(dst_ip, dst_port, algdesc):
                 sleep_s = 1  # Next time sleep for 1 second to react on the process finished.
 
         logger.info("Done")
+        time.sleep(3)
         cleanup_process("tshark", tshark)
 
 
