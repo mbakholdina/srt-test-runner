@@ -151,6 +151,7 @@ def create_tshark(interface, output):
 @click.argument('dst_ip',   default="192.168.0.110")
 @click.argument('dst_port', default="4200")
 @click.argument('algdesc')
+@click.argument('pcapng')
 def main(dst_ip, dst_port, algdesc):
     #common_args = ["./srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
     #        "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
@@ -170,7 +171,7 @@ def main(dst_ip, dst_port, algdesc):
         args = common_args + ["-repeat", str(repeat)]
         logger.info("Starting with bitrate {}, repeat {}".format(expected_bitrate_bps, repeat))
 
-        pcapng_file = "D:\\tests\\winzotac-to-centos-alg-{}-take-{}.pcapng".format(algdesc, i)
+        pcapng_file = pcapng + "-alg-{}-take-{}.pcapng".format(algdesc, i)
         tshark = create_tshark(interface = '4', output = pcapng_file)
         time.sleep(3)
 

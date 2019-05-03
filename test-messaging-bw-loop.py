@@ -139,11 +139,18 @@ def cleanup_process(name, process):
     logger.debug('Killed')
 
 
+def create_tshark(interface, output):
+    args = ['tshark', '-i', interface, '-w', output]
+    #args = ['tshark', '-D']
+    return create_process("tshark", args)
+
 
 @click.command()
 @click.argument('dst_ip',   default="192.168.0.110")
 @click.argument('dst_port', default="4200")
-def main(dst_ip, dst_port):
+@click.argument('algdesc')
+@click.argument('pcapng')
+def main(dst_ip, dst_port, algdesc, pcapng):
     common_args = ["./srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
             "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
 
@@ -154,6 +161,11 @@ def main(dst_ip, dst_port):
         # based on the target bitrate and packet size.
         repeat = 20 * bitrate // (1456 * 8)
         maxbw  = int(bitrate // 8 * 1.25)
+
+        pcapng_file = pcapng + "-alg-{}-blt-{}bps.pcapng".format(algdesc, bitrate)
+        tshark = create_tshark(interface = '4', output = pcapng_file)
+        time.sleep(3)
+
         args = common_args + ["-bitrate", str(bitrate), "-repeat", str(repeat)]
         args[1] += "&maxbw={}".format(maxbw)
         logger.info("Starting with bitrate {}, repeat {}".format(bitrate, repeat))
@@ -168,7 +180,8 @@ def main(dst_ip, dst_port):
                 sleep_s = 1  # Next time sleep for 1 second to react on the process finished.
 
         logger.info("Done")
-        #cleanup_process(pc_name, snd_srt_process)
+        time.sleep(3)
+        cleanup_process("tshark", tshark)
 
     # Start transmission in file mode
     #args = ["srt-test-messaging", "srt://192.168.0.7:4200", "",
