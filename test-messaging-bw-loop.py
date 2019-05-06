@@ -156,7 +156,7 @@ def main(dst_ip, dst_port, algdesc, pcapng):
 
     pc_name = 'srt-test-messaging (SND)'
 
-    for bitrate in range(100000000, 1100000000, 100000000):
+    for bitrate in range(50000000, 1100000000, 50000000):
         # Calculate number of packets for 20 sec of streaming
         # based on the target bitrate and packet size.
         repeat = 20 * bitrate // (1456 * 8)
@@ -173,15 +173,20 @@ def main(dst_ip, dst_port, algdesc, pcapng):
 
         sleep_s = 20
         is_running = True
+        i = 0
         while is_running:
             is_running, returncode = process_is_running(snd_srt_process)
             if is_running:
                 time.sleep(sleep_s)
                 sleep_s = 1  # Next time sleep for 1 second to react on the process finished.
+                i += 1
 
         logger.info("Done")
         time.sleep(3)
         cleanup_process("tshark", tshark)
+        if i >= 5:
+            logger.info("Waited {} seconds. {} is considered as max BW".format(20 + i, bitrate))
+            break
 
     # Start transmission in file mode
     #args = ["srt-test-messaging", "srt://192.168.0.7:4200", "",
