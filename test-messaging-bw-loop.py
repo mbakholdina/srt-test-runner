@@ -139,9 +139,8 @@ def cleanup_process(name, process):
     logger.debug('Killed')
 
 
-def create_tshark(interface, output):
-    args = ['tshark', '-i', interface, '-w', output]
-    #args = ['tshark', '-D']
+def create_tshark(interface, port, output):
+    args = ['tshark', '-i', interface, '-f', '"udp port {}"'.format(port), '-s', '1500', '-w', output]
     return create_process("tshark", args)
 
 
@@ -168,7 +167,7 @@ def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats):
         maxbw  = int(bitrate // 8 * 1.25)
 
         pcapng_file = pcapng + "-alg-{}-blt-{}bps.pcapng".format(algdesc, bitrate)
-        tshark = create_tshark(interface = iface, output = pcapng_file)
+        tshark = create_tshark(interface = iface, port = dst_port, output = pcapng_file)
         time.sleep(3)
 
         args = common_args + ["-bitrate", str(bitrate), "-repeat", str(repeat)]

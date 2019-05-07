@@ -137,12 +137,11 @@ def cleanup_process(name, process):
     if is_running:
         raise ProcessHasNotBeenKilled('{}, id: {}'.format(name, process.pid))
     logger.debug('Killed')
-    
-    
-    
-def create_tshark(interface, output):
-    args = ['tshark', '-i', interface, '-w', output]
-    #args = ['tshark', '-D']
+
+
+
+def create_tshark(interface, port, output):
+    args = ['tshark', '-i', interface, '-f', '"udp port {}"'.format(port), '-s', '1500', '-w', output]
     return create_process("tshark", args)
 
 
@@ -179,7 +178,7 @@ def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats):
         logger.info("Starting with bitrate {}, repeat {}".format(expected_bitrate_bps, repeat))
 
         pcapng_file = pcapng + "-alg-{}-take-{}.pcapng".format(algdesc, i)
-        tshark = create_tshark(interface = iface, output = pcapng_file)
+        tshark = create_tshark(interface = iface, port = dst_port, output = pcapng_file)
         time.sleep(3)
 
         snd_srt_process = create_process(pc_name, args)
