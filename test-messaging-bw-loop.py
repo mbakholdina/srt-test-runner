@@ -150,9 +150,14 @@ def create_tshark(interface, output):
 @click.argument('dst_port', default="4200")
 @click.argument('algdesc')
 @click.argument('pcapng')
-def main(dst_ip, dst_port, algdesc, pcapng):
+@click.argument('iface')
+@click.option('--collect-stats', is_flag=True, help='Collect SRT statistics')
+def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats):
     common_args = ["./srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
             "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
+
+    if collect_stats:
+        common_args += ['-statsfreq', '1']
 
     pc_name = 'srt-test-messaging (SND)'
 
@@ -163,10 +168,13 @@ def main(dst_ip, dst_port, algdesc, pcapng):
         maxbw  = int(bitrate // 8 * 1.25)
 
         pcapng_file = pcapng + "-alg-{}-blt-{}bps.pcapng".format(algdesc, bitrate)
-        tshark = create_tshark(interface = '4', output = pcapng_file)
+        tshark = create_tshark(interface = iface, output = pcapng_file)
         time.sleep(3)
 
         args = common_args + ["-bitrate", str(bitrate), "-repeat", str(repeat)]
+        if collect_stats:
+            stats_file = pcapng + "-alg-{}-blt-{}bps.csv".format(algdesc, bitrate)
+            args += ['-statsfile', stats_file]
         args[1] += "&maxbw={}".format(maxbw)
         logger.info("Starting with bitrate {}, repeat {}".format(bitrate, repeat))
         snd_srt_process = create_process(pc_name, args)

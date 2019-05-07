@@ -152,27 +152,34 @@ def create_tshark(interface, output):
 @click.argument('dst_port', default="4200")
 @click.argument('algdesc')
 @click.argument('pcapng')
-def main(dst_ip, dst_port, algdesc):
+@click.argument('iface')
+@click.option('--collect-stats', is_flag=True, help='Collect SRT statistics')
+def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats):
     #common_args = ["./srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
     #        "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
     common_args = ["./srt-test-messaging", "srt://{}:{}".format(dst_ip, dst_port), "",
             "-reply", "0", "-printmsg", "0"]
+    if collect_stats:
+        common_args += ['-statsfreq', '1']
 
     pc_name = 'srt-test-messaging (SND)'
     target_time_s = 120
-    expected_bitrate_bps = 1000000000 # 1 Gbps
+    expected_bitrate_bps = 500000000 # 500 Mbps
     message_size = 8 * 1024 * 1024
 
-    for i in range(0, 5):
+    for i in range(0, 2):
         # Calculate number of packets for 20 sec of streaming
         # based on the target bitrate and packet size.
         repeat = target_time_s * expected_bitrate_bps // (message_size * 8)
         maxbw  = int(expected_bitrate_bps // 8 * 1.25)
         args = common_args + ["-repeat", str(repeat)]
+        if collect_stats:
+            stats_file = pcapng + "-alg-{}-take-{}.csv".format(algdesc, i)
+            args += ['-statsfile', stats_file]
         logger.info("Starting with bitrate {}, repeat {}".format(expected_bitrate_bps, repeat))
 
         pcapng_file = pcapng + "-alg-{}-take-{}.pcapng".format(algdesc, i)
-        tshark = create_tshark(interface = '4', output = pcapng_file)
+        tshark = create_tshark(interface = iface, output = pcapng_file)
         time.sleep(3)
 
         snd_srt_process = create_process(pc_name, args)
