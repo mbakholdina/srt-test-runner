@@ -141,7 +141,7 @@ def cleanup_process(name, process):
 
 
 def create_tshark(interface, port, output):
-    args = ['tshark', '-i', interface, '-f', '"udp port {}"'.format(port), '-s', '1500', '-w', output]
+    args = ['tshark', '-i', interface, '-f', 'udp port {}'.format(port), '-s', '1500', '-w', output]
     return create_process("tshark", args)
 
 
