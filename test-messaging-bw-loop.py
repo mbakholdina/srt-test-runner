@@ -148,14 +148,14 @@ def create_tshark(interface, port, output):
 @click.argument('dst_ip',   default="192.168.0.110")
 @click.argument('dst_port', default="4200")
 @click.argument('algdesc')
-@click.argument('prefix', help='Prefix for pcapng and stats files')
-@click.argument('--iface', help='Network interface to capture packets (run tshark -D)')
-@click.option('--collect-pcapng', is_flag=True, help='Collect tshark captures')
-@click.option('--collect-stats',  is_flag=True, help='Collect SRT statistics')
+@click.argument('prefix')
+@click.option('--iface')
+@click.option('--collect-pcapng', is_flag=True)
+@click.option('--collect-stats', is_flag=True)
 #@click.option('--startmbps', is_flag=True, help='Collect SRT statistics')
 #@click.option('--stopmbps', is_flag=True, help='Collect SRT statistics')
 def main(dst_ip, dst_port, algdesc, prefix, iface, collect_pcapng, collect_stats):
-    common_args = ["srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
+    common_args = ["./srt-test-messaging", "srt://{}:{}?rcvbuf=1000000000&sndbuf=1000000000&fc=800000&smoother=live".format(dst_ip, dst_port), "",
             "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
 
     if collect_stats:
@@ -163,10 +163,11 @@ def main(dst_ip, dst_port, algdesc, prefix, iface, collect_pcapng, collect_stats
 
     pc_name = 'srt-test-messaging (SND)'
 
-    mbps_to_check = [1, 5, 10] + [x for x in range(50, 1100, 50)]
+    #mbps_to_check = [1, 5, 10] + [x for x in range(50, 1100, 50)]
+    bps_to_check = [x for x in range(600, 2000, 50)]
     duration_sec = 30
 
-    for mbps in bw_to_check:
+    for mbps in bps_to_check:
         # Calculate number of packets for duration_sec sec of streaming
         # based on the target bitrate and packet size.
         bps = mbps * 1_000_000
