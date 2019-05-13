@@ -81,7 +81,7 @@ def create_process(name, args):
     is_running, returncode = process_is_running(process)
     if not is_running:
         raise ProcessHasNotBeenStartedSuccessfully(
-            "{}, returncode {}, stderr: {}".format(name, returncode, process.stderr.readlines())
+            "{}, returncode {}".format(name, returncode)
         )
 
     logger.debug('Started successfully')
@@ -148,11 +148,14 @@ def create_tshark(interface, port, output):
 @click.argument('dst_ip',   default="192.168.0.110")
 @click.argument('dst_port', default="4200")
 @click.argument('algdesc')
-@click.argument('pcapng')
-@click.argument('iface')
-@click.option('--collect-stats', is_flag=True, help='Collect SRT statistics')
-def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats):
-    common_args = ["./srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
+@click.argument('prefix', help='Prefix for pcapng and stats files')
+@click.argument('--iface', help='Network interface to capture packets (run tshark -D)')
+@click.option('--collect-pcapng', is_flag=True, help='Collect tshark captures')
+@click.option('--collect-stats',  is_flag=True, help='Collect SRT statistics')
+#@click.option('--startmbps', is_flag=True, help='Collect SRT statistics')
+#@click.option('--stopmbps', is_flag=True, help='Collect SRT statistics')
+def main(dst_ip, dst_port, algdesc, prefix, iface, collect_pcapng, collect_stats):
+    common_args = ["srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
             "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
 
     if collect_stats:
@@ -160,44 +163,52 @@ def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats):
 
     pc_name = 'srt-test-messaging (SND)'
 
-    for bitrate in range(50000000, 1100000000, 50000000):
-        # Calculate number of packets for 20 sec of streaming
+    mbps_to_check = [1, 5, 10] + [x for x in range(50, 1100, 50)]
+    duration_sec = 30
+
+    for mbps in bw_to_check:
+        # Calculate number of packets for duration_sec sec of streaming
         # based on the target bitrate and packet size.
-        repeat = 20 * bitrate // (1456 * 8)
-        maxbw  = int(bitrate // 8 * 1.25)
+        bps = mbps * 1_000_000
+        repeat = duration_sec * bps // (1456 * 8)
+        maxbw  = int(bps // 8 * 1.25)
 
-        pcapng_file = pcapng + "-alg-{}-blt-{}bps.pcapng".format(algdesc, bitrate)
-        tshark = create_tshark(interface = iface, port = dst_port, output = pcapng_file)
-        time.sleep(3)
+        if collect_pcapng:
+            pcapng_file = prefix + "-alg-{}-blt-{}Mbps-snd.pcapng".format(algdesc, mbps)
+            tshark = create_tshark(interface = iface, port = dst_port, output = pcapng_file)
+            time.sleep(3)
 
-        args = common_args + ["-bitrate", str(bitrate), "-repeat", str(repeat)]
-        if collect_stats:
-            stats_file = pcapng + "-alg-{}-blt-{}bps.csv".format(algdesc, bitrate)
-            args += ['-statsfile', stats_file]
+        args = common_args + ["-bitrate", str(bps), "-repeat", str(repeat)]
         args[1] += "&maxbw={}".format(maxbw)
-        logger.info("Starting with bitrate {}, repeat {}".format(bitrate, repeat))
+
+        if collect_stats:
+            stats_file = prefix + "-alg-{}-blt-{}Mbps-snd-stats.csv".format(algdesc, mbps)
+            args += ['-statsfile', stats_file]
+
+        logger.info("Starting with bitrate {} Mbps, repeat {}".format(mbps, repeat))
         snd_srt_process = create_process(pc_name, args)
 
-        sleep_s = 20
+        sleep_sec = duration_sec
         is_running = True
         i = 0
         while is_running:
             is_running, returncode = process_is_running(snd_srt_process)
             if is_running:
-                time.sleep(sleep_s)
-                sleep_s = 1  # Next time sleep for 1 second to react on the process finished.
+                time.sleep(sleep_sec)
+                sleep_sec = 1  # Next time sleep for 1 second to react on the process finished.
                 i += 1
 
         logger.info("Done")
-        time.sleep(3)
-        cleanup_process("tshark", tshark)
+        if collect_pcapng:
+            logger.info("Stopping tshark")
+            time.sleep(3)
+            cleanup_process("tshark", tshark)
+
         if i >= 5:
-            logger.info("Waited {} seconds. {} is considered as max BW".format(20 + i, bitrate))
+            logger.info("Waited {} seconds. {} Mbps is considered as maximum bandwidth".format(duration_sec + i, mbps))
             break
 
-    # Start transmission in file mode
-    #args = ["srt-test-messaging", "srt://192.168.0.7:4200", "",
-    #        "-repeat", "500", "-printmsg", "0"]
+    # TODO: Start transmission in file mode with known bandwidth
 
 
 
