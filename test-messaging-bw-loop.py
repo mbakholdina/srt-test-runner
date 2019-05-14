@@ -1,10 +1,14 @@
+import configparser
 import logging
+import pathlib
 import signal
 import subprocess
 import sys
 import time
+import typing
 
 
+import attr
 import click
 
 # from threading import Thread
@@ -18,6 +22,19 @@ logger = logging.getLogger(__name__)
 
 
 SSH_CONNECTION_TIMEOUT = 10
+# NOTE: It is important to add "-t" option in order for SSH 
+# to transfer SIGINT, SIGTERM signals to the command
+# NOTE: It is important to add "-o BatchMode=yes" option 
+# in order to disable any kind of promt
+# NOTE: It is important to add # "-o ConnectTimeout={SSH_CONNECTION_TIMEOUT}"
+# option in case when the server is down not to wait and be able to check 
+# quickly that the process has not been started successfully
+SSH_COMMON_ARGS = [
+    'ssh', 
+    '-t',
+    '-o', 'BatchMode=yes',
+    '-o', f'ConnectTimeout={SSH_CONNECTION_TIMEOUT}',
+]
 
 
 class ProcessHasNotBeenCreated(Exception):
@@ -95,13 +112,14 @@ def create_process(name, args, via_ssh: bool=False):
     logger.debug('Started successfully')
     return process
 
-def cleanup_process(name, process):
+def cleanup_process(process_tuple):
     """ 
     Clean up actions for the process. 
 
     Raises:
         ProcessHasNotBeenKilled
     """
+    name, process = process_tuple
     # NOTE: There is a problem with terminating processes which use SSH 
     # to run a command on a remote server. The problem is in SSH not 
     # forwarding a signal (e.g., SIGINT, SIGTERM). As a result, SSH session 
@@ -119,18 +137,18 @@ def cleanup_process(name, process):
     # FIXME: Signals may not work on Windows properly. Might be useful
     # https://stefan.sofa-rockers.org/2013/08/15/handling-sub-process-hierarchies-python-linux-os-x/
 
-    is_running, returncode = process_is_running(process)
+    is_running, _ = process_is_running(process)
     if not is_running: 
         logger.info(f'Process {name} is not running, no need to terminate')
         return
     
-    logger.info(f'Terminating the process: {name}')
+    logger.info(f'Terminating {name}')
     # logger.info('OS: {}'.format(sys.platform))
     sig = signal.CTRL_C_EVENT if sys.platform == 'win32' else signal.SIGINT
     process.send_signal(sig)
     for i in range(3):
         time.sleep(1)
-        is_running, returncode = process_is_running(process)
+        is_running, _ = process_is_running(process)
         if not is_running: 
             logger.info('Terminated')
             return
@@ -143,7 +161,7 @@ def cleanup_process(name, process):
     # however process_is_running(process) becomes False
     is_running, _ = process_is_running(process)
     if is_running:
-        logger.info(f'Killing the process: {name}')
+        logger.info(f'Killing {name}')
         process.kill()
         time.sleep(1)
     is_running, _ = process_is_running(process)
@@ -151,156 +169,266 @@ def cleanup_process(name, process):
         raise ProcessHasNotBeenKilled(f'{name}, id: {process.pid}')
     logger.info('Killed')
 
-def create_tshark(interface, port, output):
-    args = ['tshark', '-i', interface, '-f', 'udp port {}'.format(port), '-s', '1500', '-w', output]
-    return create_process("tshark", args)
+def start_tshark(
+    interface, 
+    port, 
+    file_info,
+    start_via_ssh: bool=False,
+    ssh_username: typing.Optional[str]=None,
+    ssh_host: typing.Optional[str]=None
+):
+    logger.info('Starting tshark on a local machine')
+    process_name = 'tshark'
+
+    args = []
+    if start_via_ssh:
+        args += SSH_COMMON_ARGS
+        args += [f'{ssh_username}@{ssh_host}']
+
+    scenario, algdesc, bitrate = file_info
+    filename = scenario + "-alg-{}-blt-{}bps-snd.pcapng".format(algdesc, bitrate)
+    args += [
+        'tshark', 
+        '-i', interface, 
+        '-f', 'udp port {}'.format(port), 
+        '-s', '1500', 
+        '-w', filename
+    ]
+    process = create_process(process_name, args)
+    logger.info('Started successfully')
+    return (process_name, process)
+
+def start_sender(
+    snd_path_to_srt,
+    dst_host,
+    dst_port,
+    params,
+    collect_stats: bool=False,
+    file_info=None
+):
+    name = 'srt sender'
+    logger.info(f'Starting {name} on a local machine')
+
+    bitrate, repeat, maxbw = params
+    args = []
+    args += [
+        f'{snd_path_to_srt}/srt-test-messaging', 
+        f'srt://{dst_host}:{dst_port}?sndbuf=12058624&smoother=live&maxbw={maxbw}',
+        "",
+        '-msgsize', '1456',
+        '-reply', '0', 
+        '-printmsg', '0',
+        '-bitrate', str(bitrate), 
+        '-repeat', str(repeat),
+    ]
+    if collect_stats:
+        scenario, algdesc, bitrate = file_info
+        stats_file = scenario + "-alg-{}-blt-{}bps-stats-snd.csv".format(algdesc, bitrate)
+        args += [
+            '-statsfreq', '1',
+            '-statsfile', stats_file,
+        ]
+        
+    snd_srt_process = create_process(name, args)
+    logger.info('Started successfully')
+    return (name, snd_srt_process)
+
+def start_receiver(
+    rcv_ssh_host, 
+    rcv_ssh_username, 
+    rcv_path_to_srt, 
+    dst_port,
+    collect_stats: bool=False,
+    file_info=None
+):
+    name = 'srt receiver'
+    logger.info(f'Starting {name} on a remote machine: {rcv_ssh_host}')
+    args = []
+    args += SSH_COMMON_ARGS
+    args += [
+        f'{rcv_ssh_username}@{rcv_ssh_host}',
+        f'{rcv_path_to_srt}/srt-test-messaging',
+        f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live"',
+        '-msgsize', '1456',
+        '-reply', '0', 
+        '-printmsg', '0'
+    ]
+    if collect_stats:
+        args += ['-statsfreq', '1']
+        scenario, algdesc, bitrate = file_info
+        stats_file = scenario + "-alg-{}-blt-{}bps-stats-rcv.csv".format(algdesc, bitrate)
+        args += ['-statsfile', stats_file]
+    process = create_process(name, args, True)
+    logger.info('Started successfully')
+    return (name, process)
+
+@attr.s
+class Config:
+    """
+    Global configuration settings.
+    """
+    rcv_ssh_host: str = attr.ib()
+    rcv_ssh_username: str = attr.ib()
+    rcv_path_to_srt: str = attr.ib()
+    snd_path_to_srt: str = attr.ib()
+    snd_tshark_iface: str = attr.ib()
+    dst_host: str = attr.ib()
+    dst_port: str = attr.ib()
+    algdescr: str = attr.ib()
+    scenario: str = attr.ib()
+    bitrate_min: int = attr.ib()
+    bitrate_max: int = attr.ib()
+    bitrate_step: int = attr.ib()
+
+    @classmethod
+    def from_config_filepath(cls, config_filepath: pathlib.Path):
+        parsed_config = configparser.ConfigParser()
+        with config_filepath.open('r', encoding='utf-8') as fp:
+            parsed_config.read_file(fp)
+        return cls(
+            parsed_config['receiver']['rcv_ssh_host'],
+            parsed_config['receiver']['rcv_ssh_username'],
+            parsed_config['receiver']['rcv_path_to_srt'],
+            parsed_config['sender']['snd_path_to_srt'],
+            parsed_config['sender']['snd_tshark_iface'],
+            parsed_config['bw-loop-test']['dst_host'],
+            parsed_config['bw-loop-test']['dst_port'],
+            parsed_config['bw-loop-test']['algdescr'],
+            parsed_config['bw-loop-test']['scenario'],
+            int(parsed_config['bw-loop-test']['bitrate_min']),
+            int(parsed_config['bw-loop-test']['bitrate_max']),
+            int(parsed_config['bw-loop-test']['bitrate_step'])
+        )
 
 
 @click.command()
-@click.argument('rcv_ssh_host')
-@click.argument('rcv_ssh_username')
-@click.argument('dst_host')
-@click.argument('dst_port')
-# help='Algorithm description'
-@click.argument('algdesc')
-# help='File prefix - test scenario'
-@click.argument('scenario')
-# help='Network interface descriptor for tshark - eth0'
-@click.argument('iface')
-@click.option('--collect-stats', is_flag=True, help='Collect SRT statistics')
+@click.argument(
+    'config_filepath', 
+    type=click.Path(exists=True)
+)
+@click.option(
+	'--rcv', 
+	type=click.Choice(['manually', 'remotely']), 
+	help=	'Choose an appropriate option depending on whether a receiver '
+			'should be started manually or remotely.',
+	required=True
+)
+@click.option(
+    '--collect-stats', 
+    is_flag=True, 
+    help='Collect SRT statistics.'
+)
+@click.option(
+    '--run-tshark',
+    is_flag=True,
+    help='Run tshark.'
+)
 def main(
-    rcv_ssh_host, 
-    rcv_ssh_username, 
-    dst_host, 
-    dst_port, 
-    algdesc, 
-    scenario, 
-    iface, 
-    collect_stats
+    config_filepath,
+    rcv,
+    collect_stats,
+    run_tshark
 ):
-            
-    rcv_path_to_srt = 'projects/srt/maxlovic'
-    snd_path_to_srt = '.'
+    config = Config.from_config_filepath(pathlib.Path(config_filepath))
 
     processes = []
     try:
-        logger.info(f'Starting srt receiver on a remote machine: {rcv_ssh_host}')
-        # NOTE: It is important to add "-t" option in order for SSH 
-        # to transfer SIGINT, SIGTERM signals to the command
-        # NOTE: It is important to add "-o BatchMode=yes" option 
-        # in order to disable any kind of promt
-        # NOTE: It is important to add # "-o ConnectTimeout={SSH_CONNECTION_TIMEOUT}"
-        # option in case when the server is down not to wait and be able to check 
-        # quickly that the process has not been started successfully
-        rcv_srt_args = [
-            'ssh', 
-            '-t',
-            '-o', 'BatchMode=yes',
-            '-o', f'ConnectTimeout={SSH_CONNECTION_TIMEOUT}',
-            f'{rcv_ssh_username}@{rcv_ssh_host}',
-            f'{rcv_path_to_srt}/srt-test-messaging',
-            f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live"',
-            '-msgsize', '1456',
-            '-reply', '0', 
-            '-printmsg', '0'
-        ]
-        rcv_srt_process = create_process(
-            'srt-test-messaging (rcv)', 
-            rcv_srt_args, 
-            True
-        )
-        processes.append(('srt-test-messaging (rcv)', rcv_srt_process))
-        logger.info('Started successfully')
+        for bitrate in range(config.bitrate_min, config.bitrate_max, config.bitrate_step):
+            # Information needed to form .csv stats and .pcapng WireShark
+            # files' names
+            file_info = (config.scenario, config.algdescr, bitrate)
 
-        logger.info('Starting streaming with different values of bitrate')
+            # Starting SRT on a receiver side
+            if rcv == 'remotely':
+                rcv_srt_process = start_receiver(
+                    config.rcv_ssh_host, 
+                    config.rcv_ssh_username, 
+                    config.rcv_path_to_srt, 
+                    config.dst_port,
+                    collect_stats,
+                    file_info
+                )
+                processes.append(rcv_srt_process)
+                time.sleep(3)
 
-        # TODO: Add quotes to srt uri
-        snd_common_srt_args = [
-            f'{snd_path_to_srt}/srt-test-messaging', 
-            f'srt://{dst_host}:{dst_port}?sndbuf=12058624&smoother=live',
-            "",
-            '-msgsize', '1456',
-            '-reply', '0', 
-            '-printmsg', '0'
-        ]
-        if collect_stats:
-            snd_common_srt_args += ['-statsfreq', '1']
+            # Starting tshark on a sender side
+            if run_tshark:
+                snd_tshark_process = start_tshark(
+                    config.snd_tshark_iface, 
+                    config.dst_port, 
+                    file_info
+                )
+                processes.append(snd_tshark_process)
+                time.sleep(3)
 
-
-        # for bitrate in range(50000000, 1100000000, 50000000):
-        for bitrate in range(5000000, 8000000, 1000000):
             # Calculate number of packets for 20 sec of streaming
-            # based on the target bitrate and packet size.
+            # based on the target bitrate and packet size
             repeat = 20 * bitrate // (1456 * 8)
             maxbw  = int(bitrate // 8 * 1.25)
+            params = (bitrate, repeat, maxbw)
 
-            pcapng_file = scenario + "-alg-{}-blt-{}bps.pcapng".format(algdesc, bitrate)
-            tshark = create_tshark(
-                interface=iface, 
-                port=dst_port, 
-                output=pcapng_file
-            )
-            processes.append(('tshark', tshark))
-            time.sleep(3)
-
-            args = snd_common_srt_args + ["-bitrate", str(bitrate), "-repeat", str(repeat)]
-            if collect_stats:
-                stats_file = scenario + "-alg-{}-blt-{}bps.csv".format(algdesc, bitrate)
-                args += ['-statsfile', stats_file]
-            args[1] += "&maxbw={}".format(maxbw)
+            # Starting SRT on a sender side
             logger.info("Starting streaming with bitrate {}, repeat {}".format(bitrate, repeat))
-            snd_srt_process = create_process('srt-test-messaging (snd)', args)
-            processes.append(('srt-test-messaging (snd)', snd_srt_process))
+            snd_srt_process = start_sender(
+                config.snd_path_to_srt,
+                config.dst_host,
+                config.dst_port,
+                params,
+                collect_stats,
+                file_info
+            )
+            processes.append(snd_srt_process)
 
+            # Check available bandwidth
             sleep_s = 20
             is_running = True
             i = 0
             while is_running:
-                is_running, returncode = process_is_running(snd_srt_process)
+                is_running, _ = process_is_running(snd_srt_process[1])
                 if is_running:
                     time.sleep(sleep_s)
-                    sleep_s = 1  # Next time sleep for 1 second to react on the process finished.
+                    # Next time sleep for 1 second to react on the process finished
+                    sleep_s = 1
                     i += 1
 
-            logger.info("Done")
+            logger.info('Done')
             time.sleep(3)
-            cleanup_process("tshark", tshark)
+
+            if run_tshark:
+                cleanup_process(snd_tshark_process)
+                time.sleep(3)
+            if rcv == 'remotely':
+                cleanup_process(rcv_srt_process)
+                time.sleep(3)
+
             if i >= 5:
                 logger.info("Waited {} seconds. {} is considered as max BW".format(20 + i, bitrate))
                 break
-
-        logger.info('Stopping srt receiver')
-        time.sleep(3)
-        cleanup_process('srt-test-messaging (rcv)', rcv_srt_process)
     except KeyboardInterrupt:
-        logger.info('KeyboardInterrupt - Not implemented yet')
+        logger.info('KeyboardInterrupt has been caught')
     except (
         ProcessHasNotBeenCreated,
         ProcessHasNotBeenStartedSuccessfully,
-        # ProcessHasNotBeenTerminated,
         ProcessHasNotBeenKilled,
     ) as error:
         logger.info(
             f'Exception occured ({error.__class__.__name__}): {error}'
         )
     finally:
-        logger.info('Terminating running processes')
-        # TODO: Add go_further in a right way
-        # go_further = True    
+        logger.info('Cleaning up')
+
         if len(processes) == 0:
-            logger.info('Nothing to terminate')
+            logger.info('Nothing to clean up')
             return
 
-        for name, process in reversed(processes):
+        for process_tuple in reversed(processes):
             try:
-                cleanup_process(name, process)
+                cleanup_process(process_tuple)
             except:
                 # TODO: Collect the information regarding non killed processes
                 # and perfom additional clean-up actions
                 # Exceptions: ProcessIsNotKilled and others
                 print('The next experiment can not be done further')
-                # go_further = False
-        # return go_further
 
 
 if __name__ == '__main__':
