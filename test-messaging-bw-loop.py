@@ -11,8 +11,6 @@ import typing
 import attr
 import click
 
-# from threading import Thread
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -204,9 +202,10 @@ def start_sender(
     dst_port,
     params,
     collect_stats: bool=False,
-    file_info=None
+    file_info=None,
+    sender_number=None
 ):
-    name = 'srt sender'
+    name = f'srt sender {sender_number}'
     logger.info(f'Starting {name} on a local machine')
 
     bitrate, repeat, maxbw = params
@@ -222,8 +221,9 @@ def start_sender(
         '-repeat', str(repeat),
     ]
     if collect_stats:
-        scenario, algdesc, bitrate = file_info
-        stats_file = scenario + "-alg-{}-blt-{}bps-stats-snd.csv".format(algdesc, bitrate)
+        scenario, algdescr, bitrate = file_info
+        # FIXME: Create results folder automatically
+        stats_file = f'_results/{scenario}-alg-{algdescr}-blt-{bitrate}bps-stats-snd-{sender_number}.csv'
         args += [
             '-statsfreq', '1',
             '-statsfile', stats_file,
@@ -255,8 +255,9 @@ def start_receiver(
     ]
     if collect_stats:
         args += ['-statsfreq', '1']
-        scenario, algdesc, bitrate = file_info
-        stats_file = scenario + "-alg-{}-blt-{}bps-stats-rcv.csv".format(algdesc, bitrate)
+        scenario, algdescr, bitrate = file_info
+        # FIXME: Create results folder automatically
+        stats_file = f'_results/{scenario}-alg-{algdescr}-blt-{bitrate}bps-stats-rcv.csv'
         args += ['-statsfile', stats_file]
     process = create_process(name, args, True)
     logger.info('Started successfully')
@@ -279,6 +280,7 @@ class Config:
     bitrate_min: int = attr.ib()
     bitrate_max: int = attr.ib()
     bitrate_step: int = attr.ib()
+    time_to_stream: int = attr.ib()
 
     @classmethod
     def from_config_filepath(cls, config_filepath: pathlib.Path):
@@ -297,8 +299,134 @@ class Config:
             parsed_config['bw-loop-test']['scenario'],
             int(parsed_config['bw-loop-test']['bitrate_min']),
             int(parsed_config['bw-loop-test']['bitrate_max']),
-            int(parsed_config['bw-loop-test']['bitrate_step'])
+            int(parsed_config['bw-loop-test']['bitrate_step']),
+            int(parsed_config['bw-loop-test']['time_to_stream'])
         )
+
+# def for_one_sender():
+#     for bitrate in range(config.bitrate_min, config.bitrate_max, config.bitrate_step):
+#         # Information needed to form .csv stats and .pcapng WireShark
+#         # files' names
+#         file_info = (config.scenario, config.algdescr, bitrate)
+
+#         # Starting SRT on a receiver side
+#         if rcv == 'remotely':
+#             rcv_srt_process = start_receiver(
+#                 config.rcv_ssh_host, 
+#                 config.rcv_ssh_username, 
+#                 config.rcv_path_to_srt, 
+#                 config.dst_port,
+#                 collect_stats,
+#                 file_info
+#             )
+#             processes.append(rcv_srt_process)
+#             time.sleep(3)
+
+#         # Starting tshark on a sender side
+#         if run_tshark:
+#             snd_tshark_process = start_tshark(
+#                 config.snd_tshark_iface, 
+#                 config.dst_port, 
+#                 file_info
+#             )
+#             processes.append(snd_tshark_process)
+#             time.sleep(3)
+
+#         # Calculate number of packets for 20 sec of streaming
+#         # based on the target bitrate and packet size
+#         repeat = 20 * bitrate // (1456 * 8)
+#         maxbw  = int(bitrate // 8 * 1.25)
+#         params = (bitrate, repeat, maxbw)
+
+#         # Starting SRT on a sender side
+#         logger.info("Starting streaming with bitrate {}, repeat {}".format(bitrate, repeat))
+#         snd_srt_process = start_sender(
+#             config.snd_path_to_srt,
+#             config.dst_host,
+#             config.dst_port,
+#             params,
+#             collect_stats,
+#             file_info
+#         )
+#         processes.append(snd_srt_process)
+
+#         # Check available bandwidth
+#         sleep_s = 20
+#         is_running = True
+#         i = 0
+#         while is_running:
+#             is_running, _ = process_is_running(snd_srt_process[1])
+#             if is_running:
+#                 time.sleep(sleep_s)
+#                 # Next time sleep for 1 second to react on the process finished
+#                 sleep_s = 1
+#                 i += 1
+
+#         logger.info('Done')
+#         time.sleep(3)
+
+#         if run_tshark:
+#             cleanup_process(snd_tshark_process)
+#             time.sleep(3)
+#         if rcv == 'remotely':
+#             cleanup_process(rcv_srt_process)
+#             time.sleep(3)
+
+#         if i >= 5:
+#             logger.info("Waited {} seconds. {} is considered as max BW".format(20 + i, bitrate))
+#             break
+
+def start_several_senders(
+    config,
+    bitrate,
+    number_of_senders,
+    collect_stats,
+    file_info
+):
+    # Calculate number of packets for time_to_stream sec of streaming
+    # based on the target bitrate and packet size
+    repeat = config.time_to_stream * bitrate // (1456 * 8)
+    maxbw  = int(bitrate // 8 * 1.25)
+    params = (bitrate, repeat, maxbw)
+
+    logger.info(
+        f'Starting streaming with bitrate {bitrate}, repeat {repeat}, '
+        f'senders {number_of_senders}'
+    )
+
+    sender_processes = []
+
+    for i in range(0, number_of_senders):
+        snd_srt_process = start_sender(
+            config.snd_path_to_srt,
+            config.dst_host,
+            config.dst_port,
+            params,
+            collect_stats,
+            file_info,
+            i
+        )
+        sender_processes.append(snd_srt_process)
+
+    # print(sender_processes)
+    return sender_processes
+
+def calculate_extra_time(sender_processes):
+    extra_time = 0
+    for process_tuple in sender_processes:
+        # print(process_tuple)
+        is_running = True
+        _, process = process_tuple
+        while is_running:
+            is_running, _ = process_is_running(process)
+            if is_running:
+                # print('still running')
+                time.sleep(1)
+                extra_time += 1
+                # print(extra_time)
+
+    logger.info(f'Extra time spent on streaming: {extra_time}')
+    return extra_time
 
 
 @click.command()
@@ -307,11 +435,18 @@ class Config:
     type=click.Path(exists=True)
 )
 @click.option(
-	'--rcv', 
-	type=click.Choice(['manually', 'remotely']), 
-	help=	'Choose an appropriate option depending on whether a receiver '
-			'should be started manually or remotely.',
-	required=True
+    '--rcv', 
+    type=click.Choice(['manually', 'remotely']), 
+    help=	'Start a receiver manually or remotely via SSH. In case of '
+            'manual receiver start, please do not forget to do it '
+            'before running the script.',
+    required=True
+)
+@click.option(
+    '--number-of-senders', 
+    default=1,
+    help=   'Number of senders to start.',
+    show_default=True
 )
 @click.option(
     '--collect-stats', 
@@ -326,6 +461,7 @@ class Config:
 def main(
     config_filepath,
     rcv,
+    number_of_senders,
     collect_stats,
     run_tshark
 ):
@@ -361,35 +497,23 @@ def main(
                 processes.append(snd_tshark_process)
                 time.sleep(3)
 
-            # Calculate number of packets for 20 sec of streaming
-            # based on the target bitrate and packet size
-            repeat = 20 * bitrate // (1456 * 8)
-            maxbw  = int(bitrate // 8 * 1.25)
-            params = (bitrate, repeat, maxbw)
-
-            # Starting SRT on a sender side
-            logger.info("Starting streaming with bitrate {}, repeat {}".format(bitrate, repeat))
-            snd_srt_process = start_sender(
-                config.snd_path_to_srt,
-                config.dst_host,
-                config.dst_port,
-                params,
+            # Starting several SRT senders on a sender side to stream for
+            # config.time_to_stream seconds
+            sender_processes = start_several_senders(
+                config,
+                bitrate,
+                number_of_senders,
                 collect_stats,
                 file_info
             )
-            processes.append(snd_srt_process)
+            for p in sender_processes:
+                processes.append(p)
 
-            # Check available bandwidth
-            sleep_s = 20
-            is_running = True
-            i = 0
-            while is_running:
-                is_running, _ = process_is_running(snd_srt_process[1])
-                if is_running:
-                    time.sleep(sleep_s)
-                    # Next time sleep for 1 second to react on the process finished
-                    sleep_s = 1
-                    i += 1
+            # Sleep for config.time_to_stream seconds to wait while senders 
+            # will finish the streaming and then check how many senders are 
+            # still running.
+            time.sleep(config.time_to_stream)
+            extra_time = calculate_extra_time(sender_processes)
 
             logger.info('Done')
             time.sleep(3)
@@ -401,8 +525,12 @@ def main(
                 cleanup_process(rcv_srt_process)
                 time.sleep(3)
 
-            if i >= 5:
-                logger.info("Waited {} seconds. {} is considered as max BW".format(20 + i, bitrate))
+            if extra_time >= 5:
+                logger.info(
+                    f'Waited {config.time_to_stream + extra_time} seconds '
+                    f'instead of {config.time_to_stream}. '
+                    f'{bitrate}bps is considered as maximim available bandwidth.'
+                )
                 break
     except KeyboardInterrupt:
         logger.info('KeyboardInterrupt has been caught')
@@ -416,6 +544,7 @@ def main(
         )
     finally:
         logger.info('Cleaning up')
+        # print(processes)
 
         if len(processes) == 0:
             logger.info('Nothing to clean up')
@@ -423,12 +552,16 @@ def main(
 
         for process_tuple in reversed(processes):
             try:
+                # print(process_tuple)
                 cleanup_process(process_tuple)
-            except:
+            except (ProcessHasNotBeenKilled) as error:
                 # TODO: Collect the information regarding non killed processes
                 # and perfom additional clean-up actions
-                # Exceptions: ProcessIsNotKilled and others
-                print('The next experiment can not be done further')
+                logger.info(
+                    f'During cleaning up exception occured '
+                    f'({error.__class__.__name__}): {error}. The next '
+                    f'experiment can not be done further!'
+                )
 
 
 if __name__ == '__main__':
