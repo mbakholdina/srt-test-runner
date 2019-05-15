@@ -212,7 +212,7 @@ def start_sender(
     args = []
     args += [
         f'{snd_path_to_srt}/srt-test-messaging', 
-        f'srt://{dst_host}:{dst_port}?sndbuf=12058624&smoother=live&maxbw={maxbw}',
+        f'srt://{dst_host}:{dst_port}?sndbuf=12058624&smoother=live&maxbw={maxbw}&nakreport=true',
         "",
         '-msgsize', '1456',
         '-reply', '0', 
@@ -249,7 +249,7 @@ def start_receiver(
     args += [
         f'{rcv_ssh_username}@{rcv_ssh_host}',
         f'{rcv_path_to_srt}/srt-test-messaging',
-        f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live&maxcon=50"',
+        f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live&maxcon=50&nakreport=true"',
         '-msgsize', '1456',
         '-reply', '0', 
         '-printmsg', '0'
@@ -260,6 +260,7 @@ def start_receiver(
         # FIXME: Create results folder automatically
         stats_file = f'_results/{scenario}-alg-{algdescr}-blt-{bitrate}bps-stats-rcv.csv'
         args += ['-statsfile', stats_file]
+    print(args)
     process = create_process(name, args, True)
     logger.info('Started successfully')
     return (name, process)
@@ -530,7 +531,7 @@ def main(
                 logger.info(
                     f'Waited {config.time_to_stream + extra_time} seconds '
                     f'instead of {config.time_to_stream}. '
-                    f'{bitrate-config.bitrate_step}bps is considered as maximim available bandwidth.'
+                    f'{bitrate}bps is considered as maximim available bandwidth.'
                 )
                 break
     except KeyboardInterrupt:
