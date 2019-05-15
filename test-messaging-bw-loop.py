@@ -241,6 +241,7 @@ def start_receiver(
     collect_stats: bool=False,
     file_info=None
 ):
+    # FIXME: maxcon=50 is hard-coded for now
     name = 'srt receiver'
     logger.info(f'Starting {name} on a remote machine: {rcv_ssh_host}')
     args = []
@@ -248,7 +249,7 @@ def start_receiver(
     args += [
         f'{rcv_ssh_username}@{rcv_ssh_host}',
         f'{rcv_path_to_srt}/srt-test-messaging',
-        f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live"',
+        f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live&maxcon=50"',
         '-msgsize', '1456',
         '-reply', '0', 
         '-printmsg', '0'
@@ -529,7 +530,7 @@ def main(
                 logger.info(
                     f'Waited {config.time_to_stream + extra_time} seconds '
                     f'instead of {config.time_to_stream}. '
-                    f'{bitrate}bps is considered as maximim available bandwidth.'
+                    f'{bitrate-config.bitrate_step}bps is considered as maximim available bandwidth.'
                 )
                 break
     except KeyboardInterrupt:
