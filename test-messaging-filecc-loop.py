@@ -152,7 +152,7 @@ def create_tshark(interface, port, output):
 @click.argument('algdesc')
 @click.argument('pcapng')
 @click.option('--iface')
-@click.option('--msgsize')
+@click.option('--msgsize', defauklt=0)
 @click.option('--collect-stats', is_flag=True, default=True, help='Collect SRT statistics')
 @click.option('--collect-pcapng', is_flag=True, default=False)
 def main(dst_ip, dst_port, algdesc, pcapng, iface, msgsize, collect_stats, collect_pcapng):
@@ -166,7 +166,7 @@ def main(dst_ip, dst_port, algdesc, pcapng, iface, msgsize, collect_stats, colle
     pc_name = 'srt-test-messaging (SND)'
     target_time_s = 120
     expected_bitrate_bps = 1000000000 # 1000 Mbps
-    message_size = 8 * 1024 * 1024 if msgsize == 0 else int(msgsize)
+    message_size = 8 * 1024 * 1024 if int(msgsize) == 0 else int(msgsize)
 
     for i in range(0, 2):
         # Calculate number of packets for 20 sec of streaming
