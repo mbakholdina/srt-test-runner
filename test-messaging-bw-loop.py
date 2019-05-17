@@ -3,6 +3,7 @@ import configparser
 import logging
 import pathlib
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -11,6 +12,7 @@ import typing
 
 import attr
 import click
+import fabric
 
 
 logging.basicConfig(
@@ -97,7 +99,7 @@ def create_process(name, args, via_ssh: bool=False):
                 bufsize=1
             )
     except OSError as e:
-        raise ProcessHasNotBeenCreated('{}. Error: {}'.format(name, e))
+        raise ProcessHasNotBeenCreated(f'{name}. Error: {e}')
 
     # Check that the process has started successfully and has not terminated
     # because of an error
@@ -105,11 +107,11 @@ def create_process(name, args, via_ssh: bool=False):
         time.sleep(SSH_CONNECTION_TIMEOUT + 1)
     else:
         time.sleep(1)
-    logger.debug('Checking that the process has started successfully: {}'.format(name))
+    logger.debug(f'Checking that the process has started successfully: {name}')
     is_running, returncode = process_is_running(process)
     if not is_running:
         raise ProcessHasNotBeenStartedSuccessfully(
-            "{}, returncode {}, stderr: {}".format(name, returncode, process.stderr.readlines())
+            f'{name}, returncode {returncode}, stderr: {process.stderr.readlines()}'
         )
 
     logger.debug(f'Started successfully: {name}')
@@ -178,6 +180,7 @@ def start_tshark(
     interface, 
     port, 
     file_info,
+    results_dir,
     start_via_ssh: bool=False,
     ssh_username: typing.Optional[str]=None,
     ssh_host: typing.Optional[str]=None
@@ -191,11 +194,11 @@ def start_tshark(
         args += [f'{ssh_username}@{ssh_host}']
 
     scenario, algdescr, bitrate = file_info
-    filename = f'{scenario}-alg-{algdescr}-blt-{bitrate / DELIMETER}Mbps-snd.pcapng'
+    filename = results_dir / f'{scenario}-alg-{algdescr}-blt-{bitrate / DELIMETER}Mbps-snd.pcapng'
     args += [
         'tshark', 
         '-i', interface, 
-        '-f', 'udp port {}'.format(port), 
+        '-f', f'udp port {port}', 
         '-s', '1500', 
         '-w', filename
     ]
@@ -208,6 +211,7 @@ def start_sender(
     dst_host,
     dst_port,
     params,
+    results_dir,
     collect_stats: bool=False,
     file_info=None,
     sender_number=None
@@ -230,7 +234,7 @@ def start_sender(
     if collect_stats:
         scenario, algdescr, bitrate = file_info
         # FIXME: Create results folder automatically
-        stats_file = f'_results/{scenario}-alg-{algdescr}-blt-{bitrate / DELIMETER}Mbps-stats-snd-{sender_number}.csv'
+        stats_file = results_dir / f'{scenario}-alg-{algdescr}-blt-{bitrate / DELIMETER}Mbps-stats-snd-{sender_number}.csv'
         args += [
             '-statsfreq', '1',
             '-statsfile', stats_file,
@@ -245,6 +249,7 @@ def start_receiver(
     rcv_ssh_username, 
     rcv_path_to_srt, 
     dst_port,
+    results_dir,
     collect_stats: bool=False,
     file_info=None
 ):
@@ -264,8 +269,7 @@ def start_receiver(
     if collect_stats:
         args += ['-statsfreq', '1']
         scenario, algdescr, bitrate = file_info
-        # FIXME: Create results folder automatically
-        stats_file = f'_results/{scenario}-alg-{algdescr}-blt-{bitrate / DELIMETER}Mbps-stats-rcv.csv'
+        stats_file = results_dir / f'{scenario}-alg-{algdescr}-blt-{bitrate / DELIMETER}Mbps-stats-rcv.csv'
         args += ['-statsfile', stats_file]
     process = create_process(name, args, True)
     logger.info('Started successfully')
@@ -316,6 +320,7 @@ def start_several_senders(
     bitrate,
     snd_number,
     snd_mode,
+    results_dir,
     collect_stats,
     file_info
 ):
@@ -339,6 +344,7 @@ def start_several_senders(
                 config.dst_host,
                 config.dst_port,
                 params,
+                results_dir,
                 collect_stats,
                 file_info,
                 i
@@ -355,6 +361,7 @@ def start_several_senders(
                     config.dst_host,
                     config.dst_port, 
                     params, 
+                    results_dir,
                     collect_stats, 
                     file_info, 
                     i
@@ -402,10 +409,11 @@ def calculate_extra_time(sender_processes):
 @click.option(
     '--rcv', 
     type=click.Choice(['manually', 'remotely']), 
+    default='remotely',
     help=	'Start a receiver manually or remotely via SSH. In case of '
             'manual receiver start, please do not forget to do it '
             'before running the script.',
-    required=True
+    show_default=True
 )
 @click.option(
     '--snd-number', 
@@ -418,6 +426,12 @@ def calculate_extra_time(sender_processes):
     type=click.Choice(['concurrently', 'parallel']), 
     default='concurrently',
     help=   'Start senders concurrently or in parallel.',
+    show_default=True
+)
+@click.option(
+    '--results-dir',
+    default='_results',
+    help=   'Directory to store results.',
     show_default=True
 )
 @click.option(
@@ -435,6 +449,7 @@ def main(
     rcv,
     snd_number,
     snd_mode,
+    results_dir,
     collect_stats,
     run_tshark
 ):
@@ -442,41 +457,67 @@ def main(
 
     processes = []
     try:
+        if rcv == 'remotely':
+            logger.info('Creating a folder for storing results on a receiver side')
+            # FIXME: By default Paramiko will attempt to connect to a running 
+            # SSH agent (Unix style, e.g. a live SSH_AUTH_SOCK, or Pageant if 
+            # one is on Windows). That's why promt for login-password is not 
+            # disabled under condition that password is not configured via 
+            # connect_kwargs.password
+            with fabric.Connection(host=config.rcv_ssh_host, user=config.rcv_ssh_username) as c:
+                result = c.run(f'rm -rf {results_dir}')
+                if result.exited != 0:
+                    logger.info(f'Not created: {result}')
+                    return
+                result = c.run(f'mkdir {results_dir}')
+                if result.exited != 0:
+                    logger.info(f'Not created: {result}')
+                    return
+
+        logger.info('Creating a folder for saving results on a sender side')
+        results_dir = pathlib.Path(results_dir)
+        if results_dir.exists():
+            shutil.rmtree(results_dir)
+        results_dir.mkdir()
+
         for bitrate in range(config.bitrate_min, config.bitrate_max, config.bitrate_step):
             # Information needed to form .csv stats and .pcapng WireShark
             # files' names
             file_info = (config.scenario, config.algdescr, bitrate)
 
-            # Starting SRT on a receiver side
+            # Start SRT on a receiver side
             if rcv == 'remotely':
                 rcv_srt_process = start_receiver(
                     config.rcv_ssh_host, 
                     config.rcv_ssh_username, 
                     config.rcv_path_to_srt, 
                     config.dst_port,
+                    results_dir,
                     collect_stats,
                     file_info
                 )
                 processes.append(rcv_srt_process)
                 time.sleep(3)
 
-            # Starting tshark on a sender side
+            # Start tshark on a sender side
             if run_tshark:
                 snd_tshark_process = start_tshark(
                     config.snd_tshark_iface, 
                     config.dst_port, 
-                    file_info
+                    file_info,
+                    results_dir
                 )
                 processes.append(snd_tshark_process)
                 time.sleep(3)
 
-            # Starting several SRT senders on a sender side to stream for
+            # Start several SRT senders on a sender side to stream for
             # config.time_to_stream seconds
             sender_processes = start_several_senders(
                 config,
                 bitrate,
                 snd_number,
                 snd_mode,
+                results_dir,
                 collect_stats,
                 file_info
             )
@@ -486,6 +527,7 @@ def main(
             # Sleep for config.time_to_stream seconds to wait while senders 
             # will finish the streaming and then check how many senders are 
             # still running.
+            # FIXME: Time adjustment is needed for snd_mode='concurrently'
             time.sleep(config.time_to_stream)
             extra_time = calculate_extra_time(sender_processes)
 
@@ -508,12 +550,7 @@ def main(
                 break
     except KeyboardInterrupt:
         logger.info('KeyboardInterrupt has been caught')
-    except (
-        ProcessHasNotBeenCreated,
-        ProcessHasNotBeenStartedSuccessfully,
-        ProcessHasNotBeenKilled,
-        ParallelSendersExecutionFailed
-    ) as error:
+    except Exception as error:
         logger.info(
             f'Exception occured ({error.__class__.__name__}): {error}'
         )
