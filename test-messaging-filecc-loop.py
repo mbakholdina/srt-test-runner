@@ -153,17 +153,16 @@ def create_tshark(interface, port, output):
 @click.argument('pcapng')
 @click.argument('iface')
 @click.option('--collect-stats', is_flag=True, help='Collect SRT statistics')
-def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats):
-    #common_args = ["./srt-test-messaging", "srt://{}:{}?sndbuf=12058624&smoother=live".format(dst_ip, dst_port), "",
-    #        "-msgsize", "1456", "-reply", "0", "-printmsg", "0"]
-    common_args = ["./srt-test-messaging", "srt://{}:{}".format(dst_ip, dst_port), "",
+@click.option('--collect-pcapng', is_flag=False)
+def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats, collect_pcapng):
+    common_args = ["./srt-test-messaging", "srt://{}:{}?rcvbuf=1000000000&sndbuf=1000000000&fc=800000".format(dst_ip, dst_port), "",
             "-reply", "0", "-printmsg", "0"]
     if collect_stats:
         common_args += ['-statsfreq', '1']
 
     pc_name = 'srt-test-messaging (SND)'
     target_time_s = 120
-    expected_bitrate_bps = 500000000 # 500 Mbps
+    expected_bitrate_bps = 1000000000 # 1000 Mbps
     message_size = 8 * 1024 * 1024
 
     for i in range(0, 2):
@@ -175,25 +174,33 @@ def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats):
         if collect_stats:
             stats_file = pcapng + "-alg-{}-take-{}.csv".format(algdesc, i)
             args += ['-statsfile', stats_file]
-        logger.info("Starting with bitrate {}, repeat {}".format(expected_bitrate_bps, repeat))
+        logger.info("Starting to send {} messages".format(repeat))
 
-        pcapng_file = pcapng + "-alg-{}-take-{}.pcapng".format(algdesc, i)
-        tshark = create_tshark(interface = iface, port = dst_port, output = pcapng_file)
-        time.sleep(3)
+        if collect_pcapng:
+            pcapng_file = pcapng + "-alg-{}-take-{}.pcapng".format(algdesc, i)
+            tshark = create_tshark(interface = iface, port = dst_port, output = pcapng_file)
+            time.sleep(3)
 
         snd_srt_process = create_process(pc_name, args)
 
-        sleep_s = 20
+        sleep_s = target_time_s
         is_running = True
+        i = 0
         while is_running:
             is_running, returncode = process_is_running(snd_srt_process)
             if is_running:
                 time.sleep(sleep_s)
                 sleep_s = 1  # Next time sleep for 1 second to react on the process finished.
+                i += 1
 
         logger.info("Done")
-        time.sleep(3)
-        cleanup_process("tshark", tshark)
+        logger.info("Waited {} seconds.".format(target_time_s + i, mbps))
+        if collect_pcapng:
+            time.sleep(3)
+            cleanup_process("tshark", tshark)
+			
+        if i >= 5:
+            logger.info("Waited {} seconds. {} Mbps is considered as maximum bandwidth".format(duration_sec + i, mbps))
 
 
 
