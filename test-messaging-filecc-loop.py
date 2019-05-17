@@ -151,19 +151,22 @@ def create_tshark(interface, port, output):
 @click.argument('dst_port', default="4200")
 @click.argument('algdesc')
 @click.argument('pcapng')
-@click.argument('iface')
-@click.option('--collect-stats', is_flag=True, help='Collect SRT statistics')
-@click.option('--collect-pcapng', is_flag=False)
-def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats, collect_pcapng):
+@click.option('--iface')
+@click.option('--msgsize')
+@click.option('--collect-stats', is_flag=True, default=True, help='Collect SRT statistics')
+@click.option('--collect-pcapng', is_flag=True, default=False)
+def main(dst_ip, dst_port, algdesc, pcapng, iface, msgsize, collect_stats, collect_pcapng):
     common_args = ["./srt-test-messaging", "srt://{}:{}?rcvbuf=1000000000&sndbuf=1000000000&fc=800000".format(dst_ip, dst_port), "",
             "-reply", "0", "-printmsg", "0"]
+    if msgsize:
+        common_args += ["-msgsize", "{}".format(msgsize)]
     if collect_stats:
         common_args += ['-statsfreq', '1']
 
     pc_name = 'srt-test-messaging (SND)'
     target_time_s = 120
     expected_bitrate_bps = 1000000000 # 1000 Mbps
-    message_size = 8 * 1024 * 1024
+    message_size = 8 * 1024 * 1024 if msgsize == 0 else msgsize
 
     for i in range(0, 2):
         # Calculate number of packets for 20 sec of streaming
@@ -194,13 +197,10 @@ def main(dst_ip, dst_port, algdesc, pcapng, iface, collect_stats, collect_pcapng
                 i += 1
 
         logger.info("Done")
-        logger.info("Waited {} seconds.".format(target_time_s + i, mbps))
+        logger.info("Waited {} seconds.".format(target_time_s + i))
         if collect_pcapng:
             time.sleep(3)
             cleanup_process("tshark", tshark)
-			
-        if i >= 5:
-            logger.info("Waited {} seconds. {} Mbps is considered as maximum bandwidth".format(duration_sec + i, mbps))
 
 
 
