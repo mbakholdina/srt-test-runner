@@ -166,7 +166,7 @@ def main(dst_ip, dst_port, algdesc, pcapng, iface, msgsize, collect_stats, colle
     pc_name = 'srt-test-messaging (SND)'
     target_time_s = 120
     expected_bitrate_bps = 1000000000 # 1000 Mbps
-    message_size = 8 * 1024 * 1024 if msgsize == 0 else msgsize
+    message_size = 8 * 1024 * 1024 if msgsize == 0 else int(msgsize)
 
     for i in range(0, 2):
         # Calculate number of packets for 20 sec of streaming
