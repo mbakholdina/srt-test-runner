@@ -175,12 +175,12 @@ def main(dst_ip, dst_port, algdesc, pcapng, iface, msgsize, collect_stats, colle
         maxbw  = int(expected_bitrate_bps // 8 * 1.25)
         args = common_args + ["-repeat", str(repeat)]
         if collect_stats:
-            stats_file = pcapng + "-alg-{}-take-{}.csv".format(algdesc, i)
+            stats_file = pcapng + "-alg-{}-take-{}-snd.csv".format(algdesc, i)
             args += ['-statsfile', stats_file]
         logger.info("Starting to send {} messages".format(repeat))
 
         if collect_pcapng:
-            pcapng_file = pcapng + "-alg-{}-take-{}.pcapng".format(algdesc, i)
+            pcapng_file = pcapng + "-alg-{}-take-{}-snd.pcapng".format(algdesc, i)
             tshark = create_tshark(interface = iface, port = dst_port, output = pcapng_file)
             time.sleep(3)
 
