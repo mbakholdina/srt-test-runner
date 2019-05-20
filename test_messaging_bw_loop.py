@@ -242,7 +242,7 @@ def start_sender(
     args = []
     args += [
         f'{snd_path_to_srt}/srt-test-messaging', 
-        f'srt://{dst_host}:{dst_port}?sndbuf=12058624&smoother=live&maxbw={maxbw}&nakreport=true',
+        f'srt://{dst_host}:{dst_port}?sndbuf=12058624&smoother=live&maxbw={maxbw}',
         "",
         '-msgsize', '1456',
         '-reply', '0', 
@@ -280,7 +280,7 @@ def start_receiver(
     args += [
         f'{rcv_ssh_username}@{rcv_ssh_host}',
         f'{rcv_path_to_srt}/srt-test-messaging',
-        f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live&maxcon=50&nakreport=true"',
+        f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live&maxcon=50"',
         '-msgsize', '1456',
         '-reply', '0', 
         '-printmsg', '0'
