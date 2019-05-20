@@ -473,12 +473,14 @@ def main(
                 if result.exited != 0:
                     logger.info(f'Not created: {result}')
                     return
+            logger.info('Created successfully')
 
         logger.info('Creating a folder for saving results on a sender side')
         results_dir = pathlib.Path(results_dir)
         if results_dir.exists():
             shutil.rmtree(results_dir)
         results_dir.mkdir()
+        logger.info('Created successfully')
 
         for bitrate in range(config.bitrate_min, config.bitrate_max, config.bitrate_step):
             # Information needed to form .csv stats and .pcapng WireShark
@@ -564,14 +566,15 @@ def main(
         for process_tuple in reversed(processes):
             try:
                 cleanup_process(process_tuple)
-            except (ProcessHasNotBeenKilled) as error:
+            except ProcessHasNotBeenKilled as error:
                 # TODO: Collect the information regarding non killed processes
                 # and perfom additional clean-up actions
                 logger.info(
-                    f'During cleaning up exception occured '
+                    f'During cleaning up an exception occured '
                     f'({error.__class__.__name__}): {error}. The next '
                     f'experiment can not be done further!'
                 )
+                raise error
 
 
 if __name__ == '__main__':
