@@ -82,11 +82,11 @@ def calculate_flow_control(snd_rate, rtt):
 def calculate_buffer_size(fc):
     return 2 * fc * PACKET_SIZE
 
-def get_query(snd_rate, rtt):
+def get_query(snd_rate, rtt, smoother):
     # rcvbuf=1000000000&sndbuf=1000000000&fc=800000
     fc = calculate_flow_control(snd_rate, rtt)
     buffer_size = calculate_buffer_size(fc)
-    query = f'rcvbuf={buffer_size}&sndbuf={buffer_size}&fc={fc}'
+    query = f'rcvbuf={buffer_size}&sndbuf={buffer_size}&fc={fc}&smoother={smoother}'
     return query
 
 def get_srt_receiver_command(
@@ -94,11 +94,12 @@ def get_srt_receiver_command(
     msg_size: int,
     available_bandwidth: int,
     rtt: int,
+    smoother,
     collect_stats: bool=False,
     results_dir=None
 ):
     config = Config.from_config_filepath(pathlib.Path(config_filepath))
-    query = get_query(available_bandwidth, rtt)
+    query = get_query(available_bandwidth, rtt, smoother)
 
     args = []
     # args += shared.SSH_COMMON_ARGS
@@ -128,6 +129,7 @@ def start_sender(
     msg_size,
     available_bandwidth,
     rtt,
+    smoother,
     collect_stats: bool=False,
     results_dir=None,
     filename=None,
@@ -139,7 +141,7 @@ def start_sender(
     repeat = time_to_stream * available_bandwidth // (msg_size * 8)
     # We set the value of sending rate equal to available bandwidth,
     # because we would like to stream with the maximum available rate 
-    query = get_query(available_bandwidth, rtt)
+    query = get_query(available_bandwidth, rtt, smoother)
        
     args = []
     args += [
@@ -175,6 +177,7 @@ def main_function(
     msg_size,
     bandwidth,
     rtt,
+    smoother,
     # rcv,
     # snd_number,
     # snd_mode,
@@ -219,6 +222,7 @@ def main_function(
         msg_size,
         bandwidth,
         rtt,
+        smoother,
         collect_stats,
         results_dir,
         filename
@@ -286,6 +290,13 @@ def main_function(
     help=   'RTT (ms).',
     show_default=True
 )
+@click.option(
+    '--smoother',
+    type=click.Choice(['file', 'file-v2']), 
+    default='file-v2',
+    help=   'Smoother type.',
+    show_default=True
+)
 # @click.option(
 #     '--iterations',
 #     default='1',
@@ -319,6 +330,7 @@ def main(
     msg_size,
     bandwidth,
     rtt,
+    smoother,
     # rcv,
     # snd_number,
     # snd_mode,
@@ -339,6 +351,7 @@ def main(
             msg_size,
             available_bandwidth,
             rtt,
+            smoother,
             collect_stats,
             results_dir
         )
@@ -351,6 +364,7 @@ def main(
         msg_size,
         available_bandwidth,
         rtt,
+        smoother,
         # rcv,
         # snd_number,
         # snd_mode,
