@@ -1,12 +1,23 @@
+import configparser
+import logging
+import pathlib
+import signal
+import shutil
+import subprocess
 import sys
 import time
-import subprocess
-import signal
-import logging
+
+import attr
 import click
-from threading import Thread
+
+import shared
 
 
+# TODO:     Improve parsing config part for all the scripts,
+#           Make one main function for both bandwidth loop test and filecc test
+#           by means of adding a generator for returning SRT params and 
+#           configuration, callbacks, and improving start sender/receiver with
+#           any kind of params and options,
 
 
 logging.basicConfig(
@@ -16,198 +27,339 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class ProcessHasNotBeenCreated(Exception):
-    pass
-
-class ProcessHasNotBeenStartedSuccessfully(Exception):
-    pass
-
-
-def process_is_running(process):
-    """ 
-    Returns:
-        A tuple of (result, returncode) where 
-        - is_running is equal to True if the process is running and False if
-        the process has terminated,
-        - returncode is None if the process is running and the actual value 
-        of returncode if the process has terminated.
+@attr.s
+class Config:
     """
-    is_running = True
-    returncode = process.poll()
-    if returncode is not None:
-        is_running = False
-    return (is_running, returncode)
-
-
-
-def create_process(name, args):
-    """ 
-    name: name of the application being started
-    args: process args
-
-    Raises:
-        ProcessHasNotBeenCreated
-        ProcessHasNotBeenStarted
+    Global configuration settings.
     """
+    rcv_ssh_host: str = attr.ib()
+    rcv_ssh_username: str = attr.ib()
+    rcv_path_to_srt: str = attr.ib()
+    snd_path_to_srt: str = attr.ib()
+    snd_tshark_iface: str = attr.ib()
+    dst_host: str = attr.ib()
+    dst_port: str = attr.ib()
+    algdescr: str = attr.ib()
+    scenario: str = attr.ib()
+    time_to_stream: int = attr.ib()
 
-    try:
-        logger.debug('Starting process: {}'.format(name))
-        if sys.platform == 'win32':
-            process = subprocess.Popen(
-                args, 
-                stdin =subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                #stderr=subprocess.PIPE,
-                universal_newlines=False,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-                bufsize=1
-            )
-        else:
-            process = subprocess.Popen(
-                args, 
-                #stdin =subprocess.PIPE,
-                #stdout=subprocess.PIPE,
-                #stderr=subprocess.PIPE,
-                #universal_newlines=False,
-                bufsize=1
-            )
-    except OSError as e:
-        raise ProcessHasNotBeenCreated('{}. Error: {}'.format(name, e))
-
-    # Check that the process has started successfully and has not terminated
-    # because of an error
-    time.sleep(1)
-    logger.debug('Checking that the process has started successfully: {}'.format(name))
-    is_running, returncode = process_is_running(process)
-    if not is_running:
-        raise ProcessHasNotBeenStartedSuccessfully(
-            "{}, returncode {}, stderr: {}".format(name, returncode, process.stderr.readlines())
+    @classmethod
+    def from_config_filepath(cls, config_filepath: pathlib.Path):
+        parsed_config = configparser.ConfigParser()
+        with config_filepath.open('r', encoding='utf-8') as fp:
+            parsed_config.read_file(fp)
+        return cls(
+            parsed_config['receiver']['rcv_ssh_host'],
+            parsed_config['receiver']['rcv_ssh_username'],
+            parsed_config['receiver']['rcv_path_to_srt'],
+            parsed_config['sender']['snd_path_to_srt'],
+            parsed_config['sender']['snd_tshark_iface'],
+            parsed_config['filecc-loop-test']['dst_host'],
+            parsed_config['filecc-loop-test']['dst_port'],
+            parsed_config['filecc-loop-test']['algdescr'],
+            parsed_config['filecc-loop-test']['scenario'],
+            int(parsed_config['filecc-loop-test']['time_to_stream'])
         )
 
-    logger.debug('Started successfully')
-    return process
 
+# Packet size (B, Bytes)
+PACKET_SIZE = 1472
 
-
-
-def cleanup_process(name, process):
+def calculate_flow_control(snd_rate, rtt):
     """ 
-    Clean up actions for the process. 
+    Attributes:
+        snd_rate: 
+            Sending rate (bps).
+        rtt:
+            Round trip time (ms).
 
-    Raises:
-        ProcessHasNotBeenKilled
+    Returns:
+        Flow control in packets.
     """
+    fc = snd_rate * ((rtt + 10) / 1000) / 8 / PACKET_SIZE
+    return int(round(fc, 0))
 
-    # FIXME: Signals may not work on Windows properly. Might be useful
-    # https://stefan.sofa-rockers.org/2013/08/15/handling-sub-process-hierarchies-python-linux-os-x/
-    #process.stdout.close()
-    #process.stdin.close()
-    logger.debug('Terminating the process: {}'.format(name))
-    logger.debug('OS: {}'.format(sys.platform))
+def calculate_buffer_size(fc):
+    return 2 * fc * PACKET_SIZE
 
-    sig = signal.CTRL_C_EVENT if sys.platform == 'win32' else signal.SIGINT
-    #if sys.platform == 'win32':
-    #    if sig in [signal.SIGINT, signal.CTRL_C_EVENT]:
-    #        sig = signal.CTRL_C_EVENT
-    #    elif sig in [signal.SIGBREAK, signal.CTRL_BREAK_EVENT]:
-    #        sig = signal.CTRL_BREAK_EVENT
-    #    else:
-    #        sig = signal.SIGTERM
+def get_query(snd_rate, rtt):
+    # rcvbuf=1000000000&sndbuf=1000000000&fc=800000
+    fc = calculate_flow_control(snd_rate, rtt)
+    buffer_size = calculate_buffer_size(fc)
+    query = f'rcvbuf={buffer_size}&sndbuf={buffer_size}&fc={fc}'
+    return query
 
-    process.send_signal(sig)
-    for i in range(3):
-        time.sleep(1)
-        is_running, returncode = process_is_running(process)
-        if not is_running: 
-            logger.debug('Terminated')
-            return
+def get_srt_receiver_command(
+    config_filepath,
+    msg_size: int,
+    available_bandwidth: int,
+    rtt: int,
+    collect_stats: bool=False,
+    results_dir=None
+):
+    config = Config.from_config_filepath(pathlib.Path(config_filepath))
+    query = get_query(available_bandwidth, rtt)
 
-    # TODO: (For future) Experiment with this more. If stransmit will not 
-    # stop after several terminations, there is a problem, and kill() will
-    # hide this problem in this case.
+    args = []
+    # args += shared.SSH_COMMON_ARGS
+    args += [
+        # f'{rcv_ssh_username}@{rcv_ssh_host}',
+        f'{config.rcv_path_to_srt}/srt-test-messaging',
+        f'"srt://:{config.dst_port}?{query}"',
+        '-msgsize', str(msg_size),
+        '-reply', '0', 
+        '-printmsg', '0'
+    ]
+    if collect_stats:
+        filename = f'{config.scenario}-alg-{config.algdescr}-filecc-stats-rcv.csv'
+        filepath = results_dir / filename
+        args += [
+            '-statsfreq', '1',
+            '-statsfile', filepath,
+        ]
     
-    # TODO: (!) There is a problem with tsp, it's actually not killed
-    # however process_is_running(process) becomes False
-    is_running, _ = process_is_running(process)
-    if is_running:
-        logger.debug('Killing the process: {}'.format(name))
-        process.kill()
-        time.sleep(1)
-    is_running, _ = process_is_running(process)
-    if is_running:
-        raise ProcessHasNotBeenKilled('{}, id: {}'.format(name, process.pid))
-    logger.debug('Killed')
+    return f'{" ".join(args)}'
 
+def start_sender(
+    snd_path_to_srt,
+    dst_host,
+    dst_port,
+    time_to_stream,
+    msg_size,
+    available_bandwidth,
+    rtt,
+    collect_stats: bool=False,
+    results_dir=None,
+    filename=None,
+    sender_number=0
+):
+    name = f'srt sender {sender_number}'
+    logger.info(f'Starting on a local machine: {name}')
+    
+    repeat = time_to_stream * available_bandwidth // (msg_size * 8)
+    # We set the value of sending rate equal to available bandwidth,
+    # because we would like to stream with the maximum available rate 
+    query = get_query(available_bandwidth, rtt)
+       
+    args = []
+    args += [
+        f'{snd_path_to_srt}/srt-test-messaging', 
+        f'srt://{dst_host}:{dst_port}?{query}',
+        "",
+        '-msgsize', str(msg_size),
+        '-reply', '0', 
+        '-printmsg', '0',
+        '-repeat', str(repeat),
+    ]
+    if collect_stats:
+        filepath = results_dir / filename
+        args += [
+            '-statsfreq', '1',
+            '-statsfile', filepath,
+        ]
+    print(args)
+    snd_srt_process = shared.create_process(name, args)
+    logger.info(f'Started successfully: {name}')
+    return (name, snd_srt_process)
 
+def determine_msg_size(msg_size):
+    if msg_size == '1456B':
+        return 1456
+    if msg_size == '4MB':
+        return 4 * 1024 * 1024
+    if msg_size == '8MB':
+        return 8 * 1024 * 1024
 
-def create_tshark(interface, port, output):
-    args = ['tshark', '-i', interface, '-f', 'udp port {}'.format(port), '-s', '1500', '-w', output]
-    return create_process("tshark", args)
+def main_function(
+    config_filepath,
+    msg_size,
+    bandwidth,
+    rtt,
+    # rcv,
+    # snd_number,
+    # snd_mode,
+    # iterations,
+    results_dir,
+    collect_stats,
+    run_tshark
+):
+    config = Config.from_config_filepath(pathlib.Path(config_filepath))
 
+    logger.info('Creating a folder for saving results on a sender side')
+    results_dir = pathlib.Path(results_dir)
+    if results_dir.exists():
+        shutil.rmtree(results_dir)
+    results_dir.mkdir()
+    logger.info('Created successfully')
 
+    processes = []
+    # for i in range(0, iterations):
+        # logger.info(f'Iteration: {i}')
+
+    # Start tshark on a sender side
+    if run_tshark:
+        filename = f'{config.scenario}-alg-{config.algdescr}-filecc-stats-snd.pcapng'
+        snd_tshark_process = shared.start_tshark(
+            config.snd_tshark_iface, 
+            config.dst_port, 
+            filename,
+            results_dir
+        )
+        processes.append(snd_tshark_process)
+        time.sleep(3)
+
+    # Start srt sender on a sender side
+    sender_processes = []
+    filename = f'{config.scenario}-alg-{config.algdescr}-filecc-stats-snd.csv'
+    snd_srt_process = start_sender(
+        config.snd_path_to_srt,
+        config.dst_host,
+        config.dst_port,
+        config.time_to_stream,
+        msg_size,
+        bandwidth,
+        rtt,
+        collect_stats,
+        results_dir,
+        filename
+    )
+    processes.append(snd_srt_process)
+    sender_processes.append(snd_srt_process)
+
+    # Sleep for config.time_to_stream seconds to wait while senders 
+    # will finish the streaming and then check how many senders are 
+    # still running.
+    time.sleep(config.time_to_stream)
+    extra_time = shared.calculate_extra_time(sender_processes)
+    logger.info(f'Extra time spent on streaming: {extra_time}')
+
+    logger.info('Done')
+    time.sleep(3)
+
+    if run_tshark:
+        shared.cleanup_process(snd_tshark_process)
+        time.sleep(3)
 
 @click.command()
-@click.argument('dst_ip',   default="192.168.0.110")
-@click.argument('dst_port', default="4200")
-@click.argument('algdesc')
-@click.argument('pcapng')
-@click.option('--iface')
-@click.option('--msgsize', defauklt=0)
-@click.option('--collect-stats', is_flag=True, default=True, help='Collect SRT statistics')
-@click.option('--collect-pcapng', is_flag=True, default=False)
-def main(dst_ip, dst_port, algdesc, pcapng, iface, msgsize, collect_stats, collect_pcapng):
-    common_args = ["./srt-test-messaging", "srt://{}:{}?rcvbuf=1000000000&sndbuf=1000000000&fc=800000".format(dst_ip, dst_port), "",
-            "-reply", "0", "-printmsg", "0"]
-    if msgsize:
-        common_args += ["-msgsize", "{}".format(msgsize)]
-    if collect_stats:
-        common_args += ['-statsfreq', '1']
+@click.argument(
+    'config_filepath', 
+    type=click.Path(exists=True)
+)
+# @click.option(
+#     '--rcv', 
+#     type=click.Choice(['manually', 'remotely']), 
+#     default='remotely',
+#     help=	'Start a receiver manually or remotely via SSH. In case of '
+#             'manual receiver start, please do not forget to do it '
+#             'before running the script.',
+#     show_default=True
+# )
+# @click.option(
+#     '--snd-number', 
+#     default=1,
+#     help=   'Number of senders to start.',
+#     show_default=True
+# )
+# @click.option(
+#     '--snd-mode',
+#     type=click.Choice(['concurrently', 'parallel']), 
+#     default='concurrently',
+#     help=   'Start senders concurrently or in parallel.',
+#     show_default=True
+# )
+@click.option(
+    '--msg_size',
+    type=click.Choice(['1456B', '4MB', '8MB']), 
+    default='1456B',
+    help=   'Message size.',
+    show_default=True
+)
+@click.option(
+    '--bandwidth',
+    default='1000000000',
+    help=   'Available bandwidth (bytes).',
+    show_default=True
+)
+@click.option(
+    '--rtt',
+    default='20',
+    help=   'RTT (ms).',
+    show_default=True
+)
+# @click.option(
+#     '--iterations',
+#     default='1',
+#     help=   'Number of iterations.',
+#     show_default=True
+# )
+@click.option(
+    '--results-dir',
+    default='_results',
+    help=   'Directory to store results.',
+    show_default=True
+)
+@click.option(
+    '--collect-stats', 
+    is_flag=True, 
+    help='Collect SRT statistics.'
+)
+@click.option(
+    '--run-tshark',
+    is_flag=True,
+    help='Run tshark.'
+)
+@click.option(
+    '--rcv-cmd',
+    is_flag=True,
+    help='Get command to start receiver.'
+)
 
-    pc_name = 'srt-test-messaging (SND)'
-    target_time_s = 120
-    expected_bitrate_bps = 1000000000 # 1000 Mbps
-    message_size = 8 * 1024 * 1024 if int(msgsize) == 0 else int(msgsize)
+def main(
+    config_filepath,
+    msg_size,
+    bandwidth,
+    rtt,
+    # rcv,
+    # snd_number,
+    # snd_mode,
+    # iterations,
+    results_dir,
+    collect_stats,
+    run_tshark,
+    rcv_cmd
+):
+    msg_size = determine_msg_size(msg_size)
+    available_bandwidth = int(bandwidth)
+    rtt = int(rtt)
+    # iterations = int(iterations)
 
-    for i in range(0, 2):
-        # Calculate number of packets for 20 sec of streaming
-        # based on the target bitrate and packet size.
-        repeat = target_time_s * expected_bitrate_bps // (message_size * 8)
-        maxbw  = int(expected_bitrate_bps // 8 * 1.25)
-        args = common_args + ["-repeat", str(repeat)]
-        if collect_stats:
-            stats_file = pcapng + "-alg-{}-take-{}-snd.csv".format(algdesc, i)
-            args += ['-statsfile', stats_file]
-        logger.info("Starting to send {} messages".format(repeat))
+    if rcv_cmd:
+        cmd = get_srt_receiver_command(
+            config_filepath,
+            msg_size,
+            available_bandwidth,
+            rtt,
+            collect_stats,
+            results_dir
+        )
+        # ! stop here
+        print(cmd)
+        return
 
-        if collect_pcapng:
-            pcapng_file = pcapng + "-alg-{}-take-{}-snd.pcapng".format(algdesc, i)
-            tshark = create_tshark(interface = iface, port = dst_port, output = pcapng_file)
-            time.sleep(3)
-
-        snd_srt_process = create_process(pc_name, args)
-
-        sleep_s = target_time_s
-        is_running = True
-        i = 0
-        while is_running:
-            is_running, returncode = process_is_running(snd_srt_process)
-            if is_running:
-                time.sleep(sleep_s)
-                sleep_s = 1  # Next time sleep for 1 second to react on the process finished.
-                i += 1
-
-        logger.info("Done")
-        logger.info("Waited {} seconds.".format(target_time_s + i))
-        if collect_pcapng:
-            time.sleep(3)
-            cleanup_process("tshark", tshark)
-
-
+    main_function(
+        config_filepath,
+        msg_size,
+        available_bandwidth,
+        rtt,
+        # rcv,
+        # snd_number,
+        # snd_mode,
+        # iterations,
+        results_dir,
+        collect_stats,
+        run_tshark
+    )
 
 
 if __name__ == '__main__':
     main()
-
-
-
-
