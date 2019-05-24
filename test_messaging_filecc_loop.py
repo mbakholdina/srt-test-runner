@@ -76,16 +76,21 @@ def calculate_flow_control(snd_rate, rtt):
     Returns:
         Flow control in packets.
     """
-    fc = snd_rate * ((rtt + 10) / 1000) / 8 / PACKET_SIZE
-    return int(round(fc, 0))
+    # FIXME: Adjust formula
+    # fc = snd_rate * ((rtt + 10) / 1000) * 2 / PACKET_SIZE
+    # return int(round(fc, 0))
+    return 60000
 
-def calculate_buffer_size(fc):
-    return 2 * fc * PACKET_SIZE
+def calculate_buffer_size(msg_size, fc):
+    # FIXME: Adjust formula
+    # return max(2 * fc * PACKET_SIZE, 5 * msg_size)
+    # 1Gb in bytes
+    return 125000000
 
-def get_query(snd_rate, rtt, smoother):
+def get_query(snd_rate, msg_size, rtt, smoother):
     # rcvbuf=1000000000&sndbuf=1000000000&fc=800000
     fc = calculate_flow_control(snd_rate, rtt)
-    buffer_size = calculate_buffer_size(fc)
+    buffer_size = calculate_buffer_size(msg_size, fc)
     query = f'rcvbuf={buffer_size}&sndbuf={buffer_size}&fc={fc}&smoother={smoother}'
     return query
 
@@ -100,7 +105,7 @@ def get_srt_receiver_command(
     filename: str=None
 ):
     config = Config.from_config_filepath(pathlib.Path(config_filepath))
-    query = get_query(available_bandwidth, rtt, smoother)
+    query = get_query(available_bandwidth, msg_size, rtt, smoother)
 
     args = []
     # args += shared.SSH_COMMON_ARGS
@@ -126,7 +131,7 @@ def start_sender(
     dst_host,
     dst_port,
     time_to_stream,
-    msg_size,
+    msg_size: int,
     available_bandwidth,
     rtt,
     smoother,
@@ -141,12 +146,12 @@ def start_sender(
     repeat = time_to_stream * available_bandwidth // (msg_size * 8)
     # We set the value of sending rate equal to available bandwidth,
     # because we would like to stream with the maximum available rate 
-    query = get_query(available_bandwidth, rtt, smoother)
+    query = get_query(available_bandwidth, msg_size, rtt, smoother)
        
     args = []
     args += [
         f'{snd_path_to_srt}/srt-test-messaging', 
-        f'srt://{dst_host}:{dst_port}?{query}',
+        f'"srt://{dst_host}:{dst_port}?{query}"',
         "",
         '-msgsize', str(msg_size),
         '-reply', '0', 
@@ -165,6 +170,7 @@ def start_sender(
     return (name, snd_srt_process)
 
 def determine_msg_size(msg_size):
+    """ In Bytes """
     if msg_size == '1456B':
         return 1456
     if msg_size == '4MB':
@@ -285,8 +291,8 @@ def main_function(
 )
 @click.option(
     '--bandwidth',
-    default='1000000000',
-    help=   'Available bandwidth (bytes).',
+    default='125000000',    # 1Gb
+    help=   'Available bandwidth (Bytes).',
     show_default=True
 )
 @click.option(
