@@ -96,7 +96,8 @@ def get_srt_receiver_command(
     rtt: int,
     smoother,
     collect_stats: bool=False,
-    results_dir=None
+    results_dir: pathlib.Path=None,
+    filename: str=None
 ):
     config = Config.from_config_filepath(pathlib.Path(config_filepath))
     query = get_query(available_bandwidth, rtt, smoother)
@@ -112,11 +113,10 @@ def get_srt_receiver_command(
         '-printmsg', '0'
     ]
     if collect_stats:
-        filename = f'{config.scenario}-alg-{config.algdescr}-filecc-stats-rcv.csv'
         filepath = results_dir / filename
         args += [
             '-statsfreq', '1',
-            '-statsfile', filepath,
+            '-statsfile', str(filepath),
         ]
     
     return f'{" ".join(args)}'
@@ -131,7 +131,7 @@ def start_sender(
     rtt,
     smoother,
     collect_stats: bool=False,
-    results_dir=None,
+    results_dir: pathlib.Path=None,
     filename=None,
     sender_number=0
 ):
@@ -157,7 +157,7 @@ def start_sender(
         filepath = results_dir / filename
         args += [
             '-statsfreq', '1',
-            '-statsfile', filepath,
+            '-statsfile', str(filepath),
         ]
     print(args)
     snd_srt_process = shared.create_process(name, args)
@@ -172,6 +172,9 @@ def determine_msg_size(msg_size):
     if msg_size == '8MB':
         return 8 * 1024 * 1024
 
+def generate_filename(config, smoother):
+    return f'{config.scenario}-alg-{config.algdescr}-smoother-{smoother}'
+    
 def main_function(
     config_filepath,
     msg_size,
@@ -182,9 +185,9 @@ def main_function(
     # snd_number,
     # snd_mode,
     # iterations,
-    results_dir,
-    collect_stats,
-    run_tshark
+    results_dir: pathlib.Path,
+    collect_stats: bool=False,
+    run_tshark: bool=False
 ):
     config = Config.from_config_filepath(pathlib.Path(config_filepath))
 
@@ -201,7 +204,8 @@ def main_function(
 
     # Start tshark on a sender side
     if run_tshark:
-        filename = f'{config.scenario}-alg-{config.algdescr}-filecc-stats-snd.pcapng'
+        filename = generate_filename(config, smoother) + '-snd.pcapng'
+        print(filename)
         snd_tshark_process = shared.start_tshark(
             config.snd_tshark_iface, 
             config.dst_port, 
@@ -213,7 +217,8 @@ def main_function(
 
     # Start srt sender on a sender side
     sender_processes = []
-    filename = f'{config.scenario}-alg-{config.algdescr}-filecc-stats-snd.csv'
+    filename = generate_filename(config, smoother) + '-stats-snd.csv'
+    print(filename)
     snd_srt_process = start_sender(
         config.snd_path_to_srt,
         config.dst_host,
@@ -272,7 +277,7 @@ def main_function(
 #     show_default=True
 # )
 @click.option(
-    '--msg_size',
+    '--msg-size',
     type=click.Choice(['1456B', '4MB', '8MB']), 
     default='1456B',
     help=   'Message size.',
@@ -346,6 +351,8 @@ def main(
     # iterations = int(iterations)
 
     if rcv_cmd:
+        config = Config.from_config_filepath(pathlib.Path(config_filepath))
+        filename = generate_filename(config, smoother) + '-stats-rcv.csv'
         cmd = get_srt_receiver_command(
             config_filepath,
             msg_size,
@@ -353,9 +360,9 @@ def main(
             rtt,
             smoother,
             collect_stats,
-            results_dir
+            pathlib.Path(results_dir),
+            filename
         )
-        # ! stop here
         print(cmd)
         return
 
