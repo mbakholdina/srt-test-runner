@@ -112,7 +112,7 @@ def get_srt_receiver_command(
     args += [
         # f'{rcv_ssh_username}@{rcv_ssh_host}',
         f'{config.rcv_path_to_srt}/srt-test-messaging',
-        f'"srt://:{config.dst_port}?{query}"',
+        f'srt://:{config.dst_port}?{query}',
         '-msgsize', str(msg_size),
         '-reply', '0', 
         '-printmsg', '0'
@@ -143,7 +143,8 @@ def start_sender(
     name = f'srt sender {sender_number}'
     logger.info(f'Starting on a local machine: {name}')
     
-    repeat = time_to_stream * available_bandwidth // (msg_size * 8)
+    # available_bandwidth should be in bytes
+    repeat = time_to_stream * available_bandwidth // msg_size
     # We set the value of sending rate equal to available bandwidth,
     # because we would like to stream with the maximum available rate 
     query = get_query(available_bandwidth, msg_size, rtt, smoother)
@@ -151,8 +152,8 @@ def start_sender(
     args = []
     args += [
         f'{snd_path_to_srt}/srt-test-messaging', 
-        f'"srt://{dst_host}:{dst_port}?{query}"',
-        "",
+        f'srt://{dst_host}:{dst_port}?{query}',
+        '',
         '-msgsize', str(msg_size),
         '-reply', '0', 
         '-printmsg', '0',
