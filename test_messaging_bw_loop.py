@@ -20,6 +20,7 @@ import typing
 import attr
 import click
 import fabric
+import paramiko
 
 import shared
 
@@ -42,71 +43,104 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def get_query(attrs_values):
+    query_elements = []
+    for attr, value in attrs_values:
+        query_elements.append(f'{attr}={value}')
+    return f'{"&".join(query_elements)}'
+
+
 def start_sender(
-    snd_path_to_srt,
-    dst_host,
-    dst_port,
-    params,
-    results_dir,
+    path_to_srt: str,
+    host: str,
+    port: str,
+    attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
     collect_stats: bool=False,
+    results_dir: pathlib.Path=None,
     file_info=None,
     sender_number=None
 ):
     name = f'srt sender {sender_number}'
     logger.info(f'Starting on a local machine: {name}')
 
-    bitrate, repeat, maxbw = params
     args = []
-    args += [
-        f'{snd_path_to_srt}/srt-test-messaging', 
-        f'srt://{dst_host}:{dst_port}?sndbuf=12058624&smoother=live&maxbw={maxbw}',
-        "",
-        '-msgsize', '1456',
-        '-reply', '0', 
-        '-printmsg', '0',
-        '-bitrate', str(bitrate), 
-        '-repeat', str(repeat),
-    ]
+    args += [f'{path_to_srt}/srt-test-messaging']
+
+    if attrs_values is not None:
+        # FIXME: But here there is a problem with "" because sender has been
+        # started locally, not via SSH
+        args += [f'srt://{host}:{port}?{get_query(attrs_values)}']
+    else:
+        args += [f'srt://{host}:{port}']
+
+    args += ['']
+
+    if options_values is not None:
+        for option, value in options_values:
+            args += [option, value]
+
     if collect_stats:
         scenario, algdescr, bitrate = file_info
-        # FIXME: Create results folder automatically
         stats_file = results_dir / f'{scenario}-alg-{algdescr}-blt-{bitrate / shared.DELIMETER}Mbps-stats-snd-{sender_number}.csv'
         args += [
             '-statsfreq', '1',
             '-statsfile', stats_file,
         ]
-        
+    
     snd_srt_process = shared.create_process(name, args)
     logger.info(f'Started successfully: {name}')
     return (name, snd_srt_process)
 
 def start_receiver(
-    rcv_ssh_host, 
-    rcv_ssh_username, 
-    rcv_path_to_srt, 
-    dst_port,
-    results_dir,
+    ssh_host: str, 
+    ssh_username: str, 
+    path_to_srt: str,
+    host: str,
+    port: str,
+    attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
     collect_stats: bool=False,
+    results_dir: pathlib.Path=None,
     file_info=None
 ):
-    # FIXME: maxcon=50 is hard-coded for now
+    """
+    Starts srt-test-messaging application on a receiver side via SSH.
+
+    Attributes:
+        attrs_values:
+            A list of SRT options (SRT URI attributes) in a format
+            [('rcvbuf', '12058624'), ('smoother', 'live'), ('maxcon', '50')].
+        options_values:
+            A list of srt-test-messaging application options in a format
+            [('-msgsize', '1456'), ('-reply', '0'), ('-printmsg', '0')].
+    """
     name = 'srt receiver'
-    logger.info(f'Starting {name} on a remote machine: {rcv_ssh_host}')
+    logger.info(f'Starting {name} on a remote machine: {ssh_host}')
     args = []
     args += shared.SSH_COMMON_ARGS
     args += [
-        f'{rcv_ssh_username}@{rcv_ssh_host}',
-        f'{rcv_path_to_srt}/srt-test-messaging',
-        f'"srt://:{dst_port}?rcvbuf=12058624&smoother=live&maxcon=50"',
-        '-msgsize', '1456',
-        '-reply', '0', 
-        '-printmsg', '0'
+        f'{ssh_username}@{ssh_host}',
+        f'{path_to_srt}/srt-test-messaging',
     ]
+
+    if attrs_values is not None:
+        # FIXME: There is a problem with "" here, if to run an app via SSH,
+        # it does not work without ""
+        args += [f'"srt://{host}:{port}?{get_query(attrs_values)}"']
+    else:
+        args += [f'srt://{host}:{port}']
+
+    if options_values is not None:
+        for option, value in options_values:
+            args += [option, value]
+
     if collect_stats:
         args += ['-statsfreq', '1']
         scenario, algdescr, bitrate = file_info
         stats_file = results_dir / f'{scenario}-alg-{algdescr}-blt-{bitrate / shared.DELIMETER}Mbps-stats-rcv.csv'
         args += ['-statsfile', stats_file]
+    
     process = shared.create_process(name, args, True)
     logger.info('Started successfully')
     return (name, process)
@@ -164,7 +198,20 @@ def start_several_senders(
     # based on the target bitrate and packet size
     repeat = config.time_to_stream * bitrate // (1456 * 8)
     maxbw  = int(bitrate // 8 * 1.25)
-    params = (bitrate, repeat, maxbw)
+    # params = (bitrate, repeat, maxbw)
+
+    attrs_values = [
+        ('sndbuf', '12058624'), 
+        ('smoother', 'live'), 
+        ('maxbw', str(maxbw)),
+    ]
+    options_values = [
+        ('-msgsize', '1456'), 
+        ('-reply', '0'), 
+        ('-printmsg', '0',), 
+        ('-bitrate', str(bitrate)),
+        ('-repeat', str(repeat)),
+    ]
 
     logger.info(
         f'Starting streaming with bitrate {bitrate}, repeat {repeat}, '
@@ -173,15 +220,16 @@ def start_several_senders(
 
     sender_processes = []
 
-    if snd_number == 1 or snd_mode == 'concurrently':
+    if snd_number == 1 or snd_mode == 'serial':
         for i in range(0, snd_number):
             snd_srt_process = start_sender(
                 config.snd_path_to_srt,
                 config.dst_host,
                 config.dst_port,
-                params,
-                results_dir,
+                attrs_values,
+                options_values,
                 collect_stats,
+                results_dir,
                 file_info,
                 i
             )
@@ -193,13 +241,14 @@ def start_several_senders(
             future_senders = {
                 executor.submit(
                     start_sender, 
-                    config.snd_path_to_srt, 
+                    config.snd_path_to_srt,
                     config.dst_host,
-                    config.dst_port, 
-                    params, 
+                    config.dst_port,
+                    attrs_values,
+                    options_values,
+                    collect_stats,
                     results_dir,
-                    collect_stats, 
-                    file_info, 
+                    file_info,
                     i
                 ): i for i in range(0, snd_number)
             }
@@ -222,6 +271,122 @@ def start_several_senders(
 
     return sender_processes
 
+def perform_experiment(
+    config,
+    rcv,
+    snd_number,
+    snd_mode,
+    results_dir,
+    collect_stats,
+    run_tshark,
+    bitrate
+):
+    """
+    Performs one experiment.
+
+    Raises:
+        KeyboardInterrupt,
+        shared.ProcessHasNotBeenStartedSuccessfully, 
+        shared.ProcessHasNotBeenCreated,
+        shared.ProcessHasNotBeenKilled
+    """
+    processes = []
+    try:
+        # Information needed to form .csv stats and .pcapng WireShark
+        # files' names
+        file_info = (config.scenario, config.algdescr, bitrate)
+
+        # Start SRT on a receiver side
+        attrs_values = [('rcvbuf', '12058624'), ('smoother', 'live'), ('maxcon', '50')]
+        options_values = [('-msgsize', '1456'), ('-reply', '0'), ('-printmsg', '0')]
+        if rcv == 'remotely':
+            rcv_srt_process = start_receiver(
+                config.rcv_ssh_host, 
+                config.rcv_ssh_username, 
+                config.rcv_path_to_srt, 
+                '',
+                config.dst_port,
+                attrs_values,
+                options_values,
+                collect_stats,
+                results_dir,
+                file_info
+            )
+            processes.append(rcv_srt_process)
+            time.sleep(3)
+
+        # Start tshark on a sender side
+        if run_tshark:
+            filename = f'{config.scenario}-alg-{config.algdescr}-blt-{bitrate / shared.DELIMETER}Mbps-snd.pcapng'
+            snd_tshark_process = shared.start_tshark(
+                config.snd_tshark_iface, 
+                config.dst_port, 
+                filename,
+                results_dir
+            )
+            processes.append(snd_tshark_process)
+            time.sleep(3)
+
+        # Start several SRT senders on a sender side to stream for
+        # config.time_to_stream seconds
+        sender_processes = start_several_senders(
+            config,
+            bitrate,
+            snd_number,
+            snd_mode,
+            results_dir,
+            collect_stats,
+            file_info
+        )
+        for p in sender_processes:
+            processes.append(p)
+
+        # Sleep for config.time_to_stream seconds to wait while senders 
+        # will finish the streaming and then check how many senders are 
+        # still running.
+        # FIXME: Time adjustment is needed for snd_mode='serial'
+        time.sleep(config.time_to_stream)
+        extra_time = shared.calculate_extra_time(sender_processes)
+        logger.info(f'Extra time spent on streaming: {extra_time}')
+
+        logger.info('Done')
+        # time.sleep(3)
+        return extra_time
+
+        # if run_tshark:
+        #     shared.cleanup_process(snd_tshark_process)
+        #     time.sleep(3)
+        # if rcv == 'remotely':
+        #     shared.cleanup_process(rcv_srt_process)
+        #     time.sleep(3)
+    except KeyboardInterrupt:
+        logger.info('KeyboardInterrupt has been caught')
+        raise
+    except (
+        shared.ProcessHasNotBeenStartedSuccessfully, 
+        shared.ProcessHasNotBeenCreated
+    ) as error:
+        logger.info(
+            f'Exception occured ({error.__class__.__name__}): {error}'
+        )
+        raise
+    finally:
+        logger.info('Cleaning up')
+        for process_tuple in reversed(processes):
+            try:
+                shared.cleanup_process(process_tuple)
+            except shared.ProcessHasNotBeenKilled as error:
+                # TODO: Collect the information regarding non killed processes
+                # and perfom additional clean-up actions
+                logger.info(
+                    f'During cleaning up an exception occured '
+                    f'({error.__class__.__name__}): {error}. The next '
+                    f'experiment can not be done further!'
+                )
+                raise
+        logger.info('Done')
+
+
 def main_function(
     config_filepath,
     rcv,
@@ -233,7 +398,6 @@ def main_function(
 ):
     config = Config.from_config_filepath(pathlib.Path(config_filepath))
 
-    processes = []
     try:
         if rcv == 'remotely':
             logger.info('Creating a folder for storing results on a receiver side')
@@ -259,102 +423,43 @@ def main_function(
             shutil.rmtree(results_dir)
         results_dir.mkdir()
         logger.info('Created successfully')
+    except paramiko.ssh_exception.SSHException as error:
+        logger.info(
+            f'Exception occured ({error.__class__.__name__}): {error}'
+        )
+        return
 
-        for bitrate in range(config.bitrate_min, config.bitrate_max, config.bitrate_step):
-            # Information needed to form .csv stats and .pcapng WireShark
-            # files' names
-            file_info = (config.scenario, config.algdescr, bitrate)
-
-            # Start SRT on a receiver side
-            if rcv == 'remotely':
-                rcv_srt_process = start_receiver(
-                    config.rcv_ssh_host, 
-                    config.rcv_ssh_username, 
-                    config.rcv_path_to_srt, 
-                    config.dst_port,
-                    results_dir,
-                    collect_stats,
-                    file_info
-                )
-                processes.append(rcv_srt_process)
-                time.sleep(3)
-
-            # Start tshark on a sender side
-            if run_tshark:
-                filename = f'{config.scenario}-alg-{config.algdescr}-blt-{bitrate / shared.DELIMETER}Mbps-snd.pcapng'
-                snd_tshark_process = shared.start_tshark(
-                    config.snd_tshark_iface, 
-                    config.dst_port, 
-                    filename,
-                    results_dir
-                )
-                processes.append(snd_tshark_process)
-                time.sleep(3)
-
-            # Start several SRT senders on a sender side to stream for
-            # config.time_to_stream seconds
-            sender_processes = start_several_senders(
+    for bitrate in range(config.bitrate_min, config.bitrate_max, config.bitrate_step):
+        try:
+            # raise shared.ProcessHasNotBeenKilled()
+            extra_time = perform_experiment(
                 config,
-                bitrate,
+                rcv,
                 snd_number,
                 snd_mode,
                 results_dir,
                 collect_stats,
-                file_info
+                run_tshark,
+                bitrate
             )
-            for p in sender_processes:
-                processes.append(p)
 
-            # Sleep for config.time_to_stream seconds to wait while senders 
-            # will finish the streaming and then check how many senders are 
-            # still running.
-            # FIXME: Time adjustment is needed for snd_mode='concurrently'
-            time.sleep(config.time_to_stream)
-            extra_time = shared.calculate_extra_time(sender_processes)
-            logger.info(f'Extra time spent on streaming: {extra_time}')
+        except (KeyboardInterrupt, shared.ProcessHasNotBeenKilled):
+            break
+        except (
+            shared.ProcessHasNotBeenStartedSuccessfully, 
+            shared.ProcessHasNotBeenCreated
+        ) as error:
+            continue
 
-            logger.info('Done')
-            time.sleep(3)
-
-            if run_tshark:
-                shared.cleanup_process(snd_tshark_process)
-                time.sleep(3)
-            if rcv == 'remotely':
-                shared.cleanup_process(rcv_srt_process)
-                time.sleep(3)
-
-            if extra_time >= 5:
-                logger.info(
-                    f'Waited {config.time_to_stream + extra_time} seconds '
-                    f'instead of {config.time_to_stream}. '
-                    f'{bitrate}bps is considered as maximim available bandwidth.'
-                )
-                break
-    except KeyboardInterrupt:
-        logger.info('KeyboardInterrupt has been caught')
-    except Exception as error:
-        logger.info(
-            f'Exception occured ({error.__class__.__name__}): {error}'
-        )
-    finally:
-        logger.info('Cleaning up')
-
-        if len(processes) == 0:
-            logger.info('Nothing to clean up')
-            return
-
-        for process_tuple in reversed(processes):
-            try:
-                shared.cleanup_process(process_tuple)
-            except shared.ProcessHasNotBeenKilled as error:
-                # TODO: Collect the information regarding non killed processes
-                # and perfom additional clean-up actions
-                logger.info(
-                    f'During cleaning up an exception occured '
-                    f'({error.__class__.__name__}): {error}. The next '
-                    f'experiment can not be done further!'
-                )
-                raise error
+        # (?) Criteria of not going further should be defined in generator,
+        # (?) what would be in case of filecc
+        if extra_time >= 5:
+            logger.info(
+                f'Waited {config.time_to_stream + extra_time} seconds '
+                f'instead of {config.time_to_stream}. '
+                f'{bitrate}bps is considered as maximim available bandwidth.'
+            )
+            break
 
 
 @click.command()
@@ -379,8 +484,8 @@ def main_function(
 )
 @click.option(
     '--snd-mode',
-    type=click.Choice(['concurrently', 'parallel']), 
-    default='concurrently',
+    type=click.Choice(['serial', 'parallel']), 
+    default='serial',
     help=   'Start senders concurrently or in parallel.',
     show_default=True
 )
