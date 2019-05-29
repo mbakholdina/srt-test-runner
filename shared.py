@@ -1,4 +1,5 @@
 import logging
+import pathlib
 import signal
 import subprocess
 import sys
@@ -172,16 +173,16 @@ def cleanup_process(process_tuple):
 
 
 def start_tshark(
-    interface, 
-    port, 
+    interface: str,
+    port: str,
+    results_dir: pathlib.Path,
     filename: str,
-    results_dir: str,
     start_via_ssh: bool=False,
     ssh_username: typing.Optional[str]=None,
     ssh_host: typing.Optional[str]=None
 ):
     name = 'tshark'
-    logger.info('Starting on a local machine: {name}')
+    logger.info(f'Starting on a local machine: {name}')
 
     args = []
     if start_via_ssh:
@@ -197,7 +198,7 @@ def start_tshark(
         '-w', filepath
     ]
     process = create_process(name, args)
-    logger.info('Started successfully: {name}')
+    logger.info(f'Started successfully: {name}')
     return (name, process)
 
 def calculate_extra_time(sender_processes):
