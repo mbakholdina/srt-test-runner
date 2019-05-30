@@ -8,6 +8,7 @@ availabale bandwidth at the moment of running the script.
 """
 import concurrent.futures
 import configparser
+import enum
 import logging
 import pathlib
 import signal
@@ -22,6 +23,7 @@ import click
 import fabric
 import paramiko
 
+import generators
 import shared
 
 
@@ -43,124 +45,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-@attr.s
-class GlobalConfig:
-    """
-    Global configuration settings.
-    """
-    rcv_ssh_host: str = attr.ib()
-    rcv_ssh_username: str = attr.ib()
-    rcv_path_to_srt: str = attr.ib()
-    snd_path_to_srt: str = attr.ib()
-    snd_tshark_iface: str = attr.ib()
-    dst_host: str = attr.ib()
-    dst_port: str = attr.ib()
-    algdescr: str = attr.ib()
-    scenario: str = attr.ib()
+class AutoName(enum.Enum):
+    def _generate_next_value_(name, start, count, last_values):
+        return name
 
-    # TODO: From section instead of filepath
-    @classmethod
-    def from_config_filepath(cls, config_filepath: pathlib.Path):
-        parsed_config = configparser.ConfigParser()
-        with config_filepath.open('r', encoding='utf-8') as fp:
-            parsed_config.read_file(fp)
-        return cls(
-            parsed_config['global']['rcv_ssh_host'],
-            parsed_config['global']['rcv_ssh_username'],
-            parsed_config['global']['rcv_path_to_srt'],
-            parsed_config['global']['snd_path_to_srt'],
-            parsed_config['global']['snd_tshark_iface'],
-            parsed_config['global']['dst_host'],
-            parsed_config['global']['dst_port'],
-            parsed_config['global']['algdescr'],
-            parsed_config['global']['scenario']
-        )
+@enum.unique
+class TestName(AutoName):
+    bw_loop_test = enum.auto()
+    filecc_loop_test = enum.auto()
 
-
-@attr.s
-class BandwidthLoopTestConfig:
-    """
-    Bandwidth loop test config.
-    """
-    bitrate_min: int = attr.ib()
-    bitrate_max: int = attr.ib()
-    bitrate_step: int = attr.ib()
-    time_to_stream: int = attr.ib()
-
-    @classmethod
-    def from_config_filepath(cls, config_filepath: pathlib.Path):
-        parsed_config = configparser.ConfigParser()
-        with config_filepath.open('r', encoding='utf-8') as fp:
-            parsed_config.read_file(fp)
-        return cls(
-            int(parsed_config['bw-loop-test']['bitrate_min']),
-            int(parsed_config['bw-loop-test']['bitrate_max']),
-            int(parsed_config['bw-loop-test']['bitrate_step']),
-            int(parsed_config['bw-loop-test']['time_to_stream'])
-        )
-
-
-@attr.s
-class ExperimentParams:
-    # TODO: Make default = None
-    rcv_attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]] = attr.ib()
-    rcv_options_values: typing.Optional[typing.List[typing.Tuple[str, str]]] = attr.ib()
-    snd_attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]] = attr.ib()
-    snd_options_values: typing.Optional[typing.List[typing.Tuple[str, str]]] = attr.ib()
-    # Information needed to form .csv stats and .pcapng WireShark
-    # files' names
-    description: str = attr.ib()
-    # in seconds
-    time_to_stream: int = attr.ib()
-
-
-def bw_loop_test_generator(
-    global_config,
-    test_config
-):
-
-    # TODO: Check whether it will work as a property of ExperimentParams
-
-    for bitrate in range(test_config.bitrate_min, test_config.bitrate_max, test_config.bitrate_step):
-        # Calculate number of packets for time_to_stream sec of streaming
-        # based on the target bitrate and packet size
-        repeat = test_config.time_to_stream * bitrate // (1456 * 8)
-        maxbw  = int(bitrate // 8 * 1.25)
-        
-        rcv_attrs_values = [
-            ('rcvbuf', '12058624'), 
-            ('smoother', 'live'), 
-            ('maxcon', '50')
-        ]
-        rcv_options_values = [
-            ('-msgsize', '1456'), 
-            ('-reply', '0'), 
-            ('-printmsg', '0')
-        ]
-        snd_attrs_values = [
-            ('sndbuf', '12058624'), 
-            ('smoother', 'live'), 
-            ('maxbw', str(maxbw)),
-        ]
-        snd_options_values = [
-            ('-msgsize', '1456'), 
-            ('-reply', '0'), 
-            ('-printmsg', '0',), 
-            ('-bitrate', str(bitrate)),
-            ('-repeat', str(repeat)),
-        ]
-        description = f'{global_config.scenario}-alg-{global_config.algdescr}-bitr-{bitrate / shared.DELIMETER}Mbps'
-        
-        exper_params = ExperimentParams(
-            rcv_attrs_values,
-            rcv_options_values,
-            snd_attrs_values,
-            snd_options_values,
-            description,
-            test_config.time_to_stream
-        )
-
-        yield exper_params
+TEST_NAMES = [name for name, member in TestName.__members__.items()]
 
 
 def get_query(attrs_values):
@@ -344,7 +238,7 @@ def start_several_senders(
 
 def perform_experiment(
     global_config,
-    exper_params: ExperimentParams,
+    exper_params: generators.ExperimentParams,
     rcv: str,
     snd_quantity: int,
     snd_mode: str,
@@ -458,7 +352,55 @@ def perform_experiment(
         logger.info('Done')
 
 
-def main_function(
+@click.command()
+@click.argument(
+    'test_name',
+    type=click.Choice(generators.TEST_NAMES)
+)
+@click.argument(
+    'config_filepath', 
+    type=click.Path(exists=True)
+)
+@click.option(
+    '--rcv', 
+    type=click.Choice(['manually', 'remotely']), 
+    default='remotely',
+    help=	'Start a receiver manually or remotely via SSH. In case of '
+            'manual receiver start, please do not forget to do it '
+            'before running the script.',
+    show_default=True
+)
+@click.option(
+    '--snd-quantity', 
+    default=1,
+    help=   'Number of senders to start.',
+    show_default=True
+)
+@click.option(
+    '--snd-mode',
+    type=click.Choice(['serial', 'parallel']), 
+    default='parallel',
+    help=   'Start senders concurrently or in parallel.',
+    show_default=True
+)
+@click.option(
+    '--collect-stats', 
+    is_flag=True, 
+    help='Collect SRT statistics.'
+)
+@click.option(
+    '--run-tshark',
+    is_flag=True,
+    help='Run tshark.'
+)
+@click.option(
+    '--results-dir',
+    default='_results',
+    help=   'Directory to store results.',
+    show_default=True
+)
+def main(
+    test_name: str,
     config_filepath: pathlib.Path,
     rcv: str,
     snd_quantity: int,
@@ -467,8 +409,46 @@ def main_function(
     run_tshark: bool=False,
     results_dir: typing.Optional[pathlib.Path]=None
 ):
-    global_config = GlobalConfig.from_config_filepath(config_filepath)
-    test_config = BandwidthLoopTestConfig.from_config_filepath(config_filepath)
+    """ 
+    Performs one test from the list of available tests `TEST_NAMES` 
+    depending on the `test_name`. During the test, either one experiment
+    or several experiments with different parameters are performed.
+    Parameters for each experiment are generated by means of an 
+    appropriate generator defined in `generators.py`.
+
+    Global and tests specific settings are defined in config file 
+    of type `config.ini`. 
+
+    Attributes:
+        test_name:
+            Test name from the list of available tests `TEST_NAMES`.
+        config_filepath:
+            A path to a config file.
+        rcv:
+            Start a receiver manually or remotely via SSH.
+        snd_quantity:
+            Number of senders to start.
+        snd_mode:
+            Start senders concurrently or in parallel.
+        collect_stats:
+            True/False in case of collect/not collect SRT statistics.
+        run_tsahrk:
+            True/False in case of run/not run tshark on a sender side.
+        results_dir:
+            A path to a directory where test results should be stored.
+
+    Returns a list of tuples of the following format
+    (test description, bitrate, extra time needed to finish with streaming)
+    """
+    config_filepath = pathlib.Path(config_filepath)
+    results_dir = pathlib.Path(results_dir)
+    global_config = generators.GlobalConfig.from_config_filepath(config_filepath)
+    if test_name == TestName.bw_loop_test.value:
+        test_config = generators.BandwidthLoopTestConfig.from_config_filepath(config_filepath)
+        exper_params_generator = generators.bw_loop_test_generator(global_config, test_config)
+    if test_name == TestName.filecc_loop_test.value:
+        test_config = generators.FileCCLoopTestConfig.from_config_filepath(config_filepath)
+        exper_params_generator = generators.filecc_loop_test_generator(global_config, test_config)
 
     try:
         if rcv == 'remotely':
@@ -501,9 +481,7 @@ def main_function(
         )
         return
 
-    exper_params_generator = bw_loop_test_generator(global_config, test_config)
-
-    # for bitrate in range(config.bitrate_min, config.bitrate_max, config.bitrate_step):
+    result = []
     for exper_params in exper_params_generator:
         try:
             extra_time = perform_experiment(
@@ -525,79 +503,24 @@ def main_function(
         ) as error:
             continue
 
-        # (?) Criteria of not going further should be defined in generator,
-        # (?) what would be in case of filecc
+        result.append((
+            exper_params.description,
+            exper_params.bitrate,
+            extra_time
+        ))
+
         if extra_time >= 5:
-            # FIXME: Add bitrate support
             logger.info(
                 f'Waited {exper_params.time_to_stream + extra_time} seconds '
                 f'instead of {exper_params.time_to_stream}. '
                 # f'{bitrate}bps is considered as maximim available bandwidth.'
             )
-            break
+            # If it is a bandwidth loop test, there is no need to stream 
+            # with the higher bitrate, because there is no available bandwidth
+            if test_name == TestName.bw_loop_test.value:
+                break
 
-
-@click.command()
-@click.argument(
-    'config_filepath', 
-    type=click.Path(exists=True)
-)
-@click.option(
-    '--rcv', 
-    type=click.Choice(['manually', 'remotely']), 
-    default='remotely',
-    help=	'Start a receiver manually or remotely via SSH. In case of '
-            'manual receiver start, please do not forget to do it '
-            'before running the script.',
-    show_default=True
-)
-@click.option(
-    '--snd-quantity', 
-    default=1,
-    help=   'Number of senders to start.',
-    show_default=True
-)
-@click.option(
-    '--snd-mode',
-    type=click.Choice(['serial', 'parallel']), 
-    default='serial',
-    help=   'Start senders concurrently or in parallel.',
-    show_default=True
-)
-@click.option(
-    '--collect-stats', 
-    is_flag=True, 
-    help='Collect SRT statistics.'
-)
-@click.option(
-    '--run-tshark',
-    is_flag=True,
-    help='Run tshark.'
-)
-@click.option(
-    '--results-dir',
-    default='_results',
-    help=   'Directory to store results.',
-    show_default=True
-)
-def main(
-    config_filepath,
-    rcv,
-    snd_quantity,
-    snd_mode,
-    collect_stats,
-    run_tshark,
-    results_dir
-):
-    main_function(
-        pathlib.Path(config_filepath),
-        rcv,
-        snd_quantity,
-        snd_mode,
-        collect_stats,
-        run_tshark,
-        results_dir
-    )
+    return result
 
 
 if __name__ == '__main__':
