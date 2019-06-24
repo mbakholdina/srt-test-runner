@@ -463,7 +463,7 @@ def main(
                 if result.exited != 0:
                     logger.info(f'Not created: {result}')
                     return
-                result = c.run(f'mkdir {results_dir}')
+                result = c.run(f'mkdir -p {results_dir}')
                 if result.exited != 0:
                     logger.info(f'Not created: {result}')
                     return
@@ -473,7 +473,7 @@ def main(
         results_dir = pathlib.Path(results_dir)
         if results_dir.exists():
             shutil.rmtree(results_dir)
-        results_dir.mkdir()
+        results_dir.mkdir(parents=True)
         logger.info('Created successfully')
     except paramiko.ssh_exception.SSHException as error:
         logger.info(
