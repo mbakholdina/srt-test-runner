@@ -355,7 +355,7 @@ def perform_experiment(
 @click.command()
 @click.argument(
     'test_name',
-    type=click.Choice(generators.TEST_NAMES)
+    type=click.Choice(TEST_NAMES)
 )
 @click.argument(
     'config_filepath', 
