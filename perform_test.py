@@ -199,7 +199,7 @@ def start_several_senders(
             )
             sender_processes.append(snd_srt_process)
 
-    if mode == 'parallel':
+    if quantity != 1 and mode == 'parallel':
         with concurrent.futures.ThreadPoolExecutor(max_workers=quantity) as executor:
             # TODO: Change to list (?)
             future_senders = {
@@ -401,7 +401,7 @@ def perform_experiment(
 )
 def main(
     test_name: str,
-    config_filepath: pathlib.Path,
+    config_filepath: str,
     rcv: str,
     snd_quantity: int,
     snd_mode: str,
