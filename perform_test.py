@@ -308,7 +308,6 @@ def perform_experiment(
         time.sleep(exper_params.time_to_stream)
         extra_time = shared.calculate_extra_time(sender_processes)
         
-
         logger.info('Done')
         # time.sleep(3)
         return extra_time
@@ -360,7 +359,7 @@ def perform_experiment(
     '--rcv', 
     type=click.Choice(['manually', 'remotely']), 
     default='remotely',
-    help=	'Start a receiver manually or remotely via SSH. In case of '
+    help=	'Start receiver manually or remotely via SSH. In case of '
             'manual receiver start, please do not forget to do it '
             'before running the script.',
     show_default=True

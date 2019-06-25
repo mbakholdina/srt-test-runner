@@ -55,7 +55,7 @@ def iterative_bw_loop_test():
     '--rcv', 
     type=click.Choice(['manually', 'remotely']), 
     default='remotely',
-    help=	'Start a receiver manually or remotely via SSH. In case of '
+    help=	'Start receiver manually or remotely via SSH. In case of '
             'manual receiver start, please do not forget to do it '
             'before running the script.',
     show_default=True
