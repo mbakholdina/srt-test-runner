@@ -6,7 +6,8 @@ import attr
 
 import shared
 
-# TODO:     Make constructors from section instead of filepath
+# TODO:     Make constructors from section instead of filepath,
+#           Check whether generator will work as a property of ExperimentParams
 
 
 @attr.s
