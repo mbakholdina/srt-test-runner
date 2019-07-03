@@ -140,11 +140,11 @@ def cleanup_process(process_tuple):
     is_running, _ = process_is_running(process)
     if not is_running: 
         logger.info(
-            f'Process is not running, no need to terminate: {process_tuple}'
+            f'Process is not running, no need to terminate: {process_tuple}\r'
         )
         return
     
-    logger.info(f'Terminating: {process_tuple}')
+    logger.info(f'Terminating: {process_tuple}\r')
     # logger.info('OS: {}'.format(sys.platform))
     sig = signal.CTRL_C_EVENT if sys.platform == 'win32' else signal.SIGINT
     process.send_signal(sig)
@@ -152,7 +152,7 @@ def cleanup_process(process_tuple):
         time.sleep(1)
         is_running, _ = process_is_running(process)
         if not is_running: 
-            logger.info(f'Terminated: {process_tuple}')
+            logger.info(f'Terminated: {process_tuple}\r')
             return
 
     # TODO: (For future) Experiment with this more. If stransmit will not 
@@ -163,13 +163,13 @@ def cleanup_process(process_tuple):
     # however process_is_running(process) becomes False
     is_running, _ = process_is_running(process)
     if is_running:
-        logger.info(f'Killing: {process_tuple}')
+        logger.info(f'Killing: {process_tuple}\r')
         process.kill()
         time.sleep(1)
     is_running, _ = process_is_running(process)
     if is_running:
         raise ProcessHasNotBeenKilled(f'{name}, id: {process.pid}')
-    logger.info(f'Killed: {process_tuple}')
+    logger.info(f'Killed: {process_tuple}\r')
 
 
 def start_tshark(
