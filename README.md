@@ -7,7 +7,7 @@
 
 ## Setting up tshark
 
-The following steps are valid fo Ubuntu 18. For other platforms, perform similar steps.
+The following steps are valid for Ubuntu 18. For other platforms perform similar steps.
 
 ```
 sudo apt-get install tshark
@@ -46,7 +46,7 @@ cmake --build ./
 
 ## ssh-agent
 
-In order to be able to run things remotely via SSH, there is a need to generate an SSH key on machine where the scripts will be runned and copy this key to all remote machines.
+In order to be able to run things remotely via SSH, there is a need to generate an SSH key on machine where the scripts will be run and copy this key to all remote machines.
 
 Before running the script, an ssh-agent should be started in the backround and an appropriate SSH private key should be added in it
 to store the passphrase in the keychain. Without doing this, scripts will raise an exception `paramiko.ssh_exception.SSHException`.
