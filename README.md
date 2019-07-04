@@ -4,10 +4,16 @@
 * cmake 3.1+
 * tshark
 * ssh-agent
+* SRT test application `srt-test-messaging`
+
+To install python libraries use:
+```
+pip install -r requirements.txt
+```
 
 ## Setting up tshark
 
-The following steps are valid for Ubuntu 18. For other platforms perform similar steps.
+The following steps are valid for Ubuntu 18. For the other platforms, perform similar steps.
 
 ```
 sudo apt-get install tshark
@@ -34,22 +40,21 @@ sudo setcap cap_net_raw,cap_net_admin+eip /usr/sbin/tshark
 sudo setcap cap_net_raw,cap_net_admin+eip /usr/sbin/dumpcap
 ```
 
-
-## <a name="building"></a> Building Test Application
-
-`srt-test-messaging` application is used for the tests.
-```
-mkdir _build && cd _build
-cmake ../ -DENABLE_MESSAGING_LIB=ON -DENABLE_TESTING=ON
-cmake --build ./
-```
-
 ## ssh-agent
 
 In order to be able to run things remotely via SSH, there is a need to generate an SSH key on machine where the scripts will be run and copy this key to all remote machines.
 
 Before running the script, an ssh-agent should be started in the backround and an appropriate SSH private key should be added in it
 to store the passphrase in the keychain. Without doing this, scripts will raise an exception `paramiko.ssh_exception.SSHException`.
+
+## <a name="building"></a> Building `srt-test-messaging` test application
+
+`srt-test-messaging` application is used for the tests. Use the following commands to build it:
+```
+mkdir _build && cd _build
+cmake ../ -DENABLE_MESSAGING_LIB=ON -DENABLE_TESTING=ON
+cmake --build ./
+```
 
 # Terminology and Notes
 
