@@ -517,10 +517,17 @@ def main_function(
         logger.info('Created successfully')
     except paramiko.ssh_exception.SSHException as error:
         logger.info(
-            f'Exception occured ({error.__class__.__name__}): {error}'
+            f'Exception occured ({error.__class__.__name__}): {error}. '
+            'Check that the ssh-agent has been started.'
         )
         raise
-        # return
+    except TimeoutError as error:
+        logger.info(
+            f'Exception occured ({error.__class__.__name__}): {error}. '
+            'Check that IP address of the remote machine is correct and the '
+            'machine is not down.'
+        )
+        raise
 
     result = []
     for exper_params in exper_params_generator:
