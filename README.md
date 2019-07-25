@@ -1,10 +1,38 @@
-# Requirements
+A set of scripts designed to evaluate the correctness and effectiveness of different algorithms implementation in SRT. [SRT](https://github.com/Haivision/srt) stands for Secure Reliable Transport and is an open source transport technology that optimizes streaming performance across unpredictable networks, such as the Internet.
+
+Tests implemented:
+
+* [Bandwidth Loop Test](#bandwidth-loop-test) to determine the maximum available bandwidth at the moment of running the script,
+* [File CC Loop Test](#filecc-loop-test) to evaluate the different congestion control algorithms implemented in SRT.
+
+# Terminology and Notes
+
+## Terminology
+
+One experiment is an operation or procedure carried out under controlled conditions in order to discover an unknown effect or law, to test or establish a hypothesis, or to illustrate a known law. For example, to us a set of the following steps 
+* start SRT sender on one machine,
+* start SRT receiver on another machine,
+* wait for the specified time to have sender and receiver connected and SRT streaming finished,
+* collect all the statistics (SRT stats, WireShark dumps),
+
+is one experiment.
+
+One test is a set of experiments executed in a consecutive order with different input parameters. The same example as above, however, the same steps are performed several times, e.g. to test SRT live streaming mode with different values of bitrate. In this case, bitrate value is that particular input parameter that is changed from experiment to experiment during the test.
+
+One combined test is a procedure that consists of running several tests in order to execute: 1) the same test iteratively at defined intervals of time; 2) one test after another where the results of the first one can be input parameters for the second.
+
+## Notes
+
+CC - Congestion Control
+
+# Getting Started
+
+## Requirements
 
 * python 3.6+
-* cmake 3.1+
 * tshark
 * ssh-agent
-* SRT test application `srt-test-messaging`
+* SRT test application `srt-test-messaging` built on both receiver and sender side
 
 To install python libraries use:
 ```
@@ -40,7 +68,7 @@ sudo setcap cap_net_raw,cap_net_admin+eip /usr/sbin/tshark
 sudo setcap cap_net_raw,cap_net_admin+eip /usr/sbin/dumpcap
 ```
 
-## ssh-agent
+## Setting up ssh-agent
 
 In order to be able to run things remotely via SSH, there is a need to generate an SSH key on machine where the scripts will be run and copy this key to all remote machines.
 
@@ -49,31 +77,14 @@ to store the passphrase in the keychain. Without doing this, scripts will raise 
 
 ## <a name="building"></a> Building `srt-test-messaging` test application
 
-`srt-test-messaging` application is used for the tests. Use the following commands to build it:
+`srt-test-messaging` application is used for the tests. The latest version is located in `https://github.com/maxlovic/srt` repo, `feature/messaging_bidir_update2` branch.
+
+In order to build it, make sure that dependensies needed for SRT project are installed (see [README](https://github.com/Haivision/srt/blob/master/README.md) for details), and then execute the following commands:
 ```
 mkdir _build && cd _build
 cmake ../ -DENABLE_MESSAGING_LIB=ON -DENABLE_TESTING=ON
 cmake --build ./
 ```
-
-# Terminology and Notes
-
-## Terminology
-
-One experiment is an operation or procedure carried out under controlled conditions in order to discover an unknown effect or law, to test or establish a hypothesis, or to illustrate a known law. For example, to us a set of the following steps 
-    start SRT sender on one machine,
-    start SRT receiver on another machine,
-    wait for the specified time to have sender and receiver connected and SRT streaming finished,
-    collect all the statistics (SRT stats, WireShark dumps),
-is one experiment.
-
-One test is a set of experiments executed in a consecutive order with different input parameters. The same example as above, however, the same steps are performed several times, e.g. to test SRT live streaming mode with different values of bitrate. In this case, bitrate value is that particular input parameter that is changed from experiment to experiment during the test.
-
-One combined test is a procedure that consists of running several tests in order to execute: 1. the same test iteratively at defined intervals of time; 2. one test after another where the results of the first one can be input parameters for the second.
-
-## Notes
-
-CC - Congestion Control
 
 # Tests Implemented
 
@@ -166,7 +177,7 @@ At the same time depending on `--collect-stats` option, `srt-test-messaging` tes
 
 ## Tests Description
 
-### 1. Bandwidth Loop Test
+### <a name="bandwidth-loop-test"></a> 1. Bandwidth Loop Test
 
 The purpose of Bandwidth Loop Test is to determine the maximum available bandwidth at the moment of running the script.
 
@@ -223,7 +234,7 @@ Option `nakreport=true` will turn off the FASTREXMIT mechanism on the sender, th
 * Actual bandwidth estimation of the link.
 
 
-### 2. File CC Loop Test
+### <a name="filecc-loop-test"></a> 2. File CC Loop Test
 
 The purpose of File CC Loop Test is to check the correctness and effectiveness of different congestion control algorithms implemented in SRT.
 
