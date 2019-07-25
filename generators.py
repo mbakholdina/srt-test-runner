@@ -66,6 +66,7 @@ class BandwidthLoopTestConfig:
             int(parsed_config['bw-loop-test']['time_to_stream'])
         )
 
+
 def determine_msg_size(msg_size: str):
     """ In Bytes """
     if msg_size == '1456B':
@@ -84,7 +85,7 @@ class FileCCLoopTestConfig:
     msg_size: int = attr.ib()
     bandwidth: int = attr.ib()
     rtt: int = attr.ib()
-    smoothers: typing.List[str] = attr.ib()
+    cc_algorithms: typing.List[str] = attr.ib()
     time_to_stream: int = attr.ib()
 
     @classmethod
@@ -97,7 +98,7 @@ class FileCCLoopTestConfig:
             determine_msg_size(parsed_config['filecc-loop-test']['msg_size']),
             int(parsed_config['filecc-loop-test']['bandwidth']),
             int(parsed_config['filecc-loop-test']['rtt']),
-            parsed_config['filecc-loop-test']['smoother'].split(','),
+            parsed_config['filecc-loop-test']['congestion'].split(','),
             int(parsed_config['filecc-loop-test']['time_to_stream'])
         )
 
@@ -133,7 +134,7 @@ def bw_loop_test_generator(
         
         rcv_attrs_values = [
             ('rcvbuf', '12058624'), 
-            ('smoother', 'live'), 
+            ('congestion', 'live'), 
             ('maxcon', '50')
         ]
         rcv_options_values = [
@@ -143,7 +144,7 @@ def bw_loop_test_generator(
         ]
         snd_attrs_values = [
             ('sndbuf', '12058624'), 
-            ('smoother', 'live'), 
+            ('congestion', 'live'), 
             ('maxbw', str(maxbw)),
         ]
         snd_options_values = [
@@ -201,7 +202,7 @@ def filecc_loop_test_generator(
 
     # TODO: Check whether it will work as a property of ExperimentParams
 
-    for smoother in test_config.smoothers:
+    for cc_algorithm in test_config.cc_algorithms:
         # Calculate number of packets for time_to_stream sec of streaming
         # based on the available bandwidth (in bytes) and message size
         repeat = test_config.time_to_stream * test_config.bandwidth // test_config.msg_size
@@ -214,7 +215,7 @@ def filecc_loop_test_generator(
             ('rcvbuf', str(buffer_size)),
             ('sndbuf', str(buffer_size)),
             ('fc', str(fc)),
-            ('smoother', smoother),
+            ('congestion', cc_algorithm),
         ]
         rcv_options_values = [
             ('-msgsize', str(test_config.msg_size)), 
@@ -228,7 +229,7 @@ def filecc_loop_test_generator(
             ('-printmsg', '0'),
             ('-repeat', str(repeat)),
         ]
-        description = f'{global_config.scenario}-alg-{global_config.algdescr}-msg_size-{test_config.msg_size}-smoother-{smoother}'
+        description = f'{global_config.scenario}-alg-{global_config.algdescr}-CC-{cc_algorithm}-msgsize-{test_config.msg_size}'
         
         exper_params = ExperimentParams(
             rcv_attrs_values,
