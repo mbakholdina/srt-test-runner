@@ -1,3 +1,4 @@
+import enum
 import logging
 import pathlib
 import signal
@@ -7,7 +8,7 @@ import time
 import typing
 
 
-# TODO:     Improve documentation
+# TODO: Improve functions documentation
 
 
 logging.basicConfig(
@@ -32,6 +33,11 @@ SSH_COMMON_ARGS = [
     '-o', f'ConnectTimeout={SSH_CONNECTION_TIMEOUT}',
 ]
 DELIMETER = 1000000
+
+
+class AutoName(enum.Enum):
+    def _generate_next_value_(name, start, count, last_values):
+        return name
 
 
 class ProcessHasNotBeenCreated(Exception):

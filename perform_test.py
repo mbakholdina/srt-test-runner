@@ -54,12 +54,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class AutoName(enum.Enum):
-    def _generate_next_value_(name, start, count, last_values):
-        return name
-
 @enum.unique
-class TestName(AutoName):
+class TestName(shared.AutoName):
     bw_loop_test = enum.auto()
     filecc_loop_test = enum.auto()
 
