@@ -121,15 +121,18 @@ Use `--help` option in order to get the full list of options
 Config file example
 ```
 [global]
-; receiver
-rcv_ssh_host = 40.71.22.29
+; Receiver
+rcv_ssh_host = 137.135.161.223
 rcv_ssh_username = msharabayko
-rcv_path_to_srt = projects/srt/maxlovic
-; sender
-snd_path_to_srt = .
+; Path to srt-test-messaging application
+rcv_path_to_srt = ~/projects/srt-maxlovic/_build
+; Sender
+; Path to srt-test-messaging application
+;snd_path_to_srt = .
+snd_path_to_srt = /Users/msharabayko/projects/srt/srt-maxlovic/_build
 snd_tshark_iface = en0
 ; Destination host, port
-dst_host = 40.71.22.29
+dst_host = 137.135.161.223
 dst_port = 4200
 ; Algorithm description (SRT build option)
 algdescr = busy_waiting
@@ -145,20 +148,21 @@ bitrate_min = 1000000
 bitrate_max = 2000000
 bitrate_step = 1000000
 ; Time to stream (s). Default value is 20s
-time_to_stream = 20
+time_to_stream = 30
 
 [filecc-loop-test]
 ; Message size: 1456B, 4MB, 8MB
-msg_size = 1456B
+msg_size = 8MB
 ; Available bandwidth (bytes)
-bandwidth = 125000000
+; bandwidth = 125000000
+bandwidth = 125000
 ; RTT (ms)
 rtt = 20
-; Smoother type: file, file-v2
-; You can specify either one smoother type or both of them using "," delimeter
-; smoother = file
-; smoother = file,file-v2
-smoother = file-v2
+; Congestion control type: file, file-v2
+; You can specify either one CC type or both of them using "," delimeter
+; congestion = file
+; congestion = file,file-v2
+congestion = filev2
 ; Time to stream (s). Default value is 120s
 time_to_stream = 120
 ```
