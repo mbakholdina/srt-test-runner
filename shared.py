@@ -119,7 +119,9 @@ def create_process(name, args, via_ssh: bool=False):
     is_running, returncode = process_is_running(process)
     if not is_running:
         raise ProcessHasNotBeenStartedSuccessfully(
-            f'{name}, returncode {returncode}, stderr: {process.stderr.readlines()}'
+            f'{name}, returncode: {returncode}, '
+            f'stdout: {process.stdout.readlines()}, '
+            f'stderr: {process.stderr.readlines()}'
         )
 
     logger.debug(f'Started successfully: {name}')
