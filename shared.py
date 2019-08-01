@@ -11,10 +11,10 @@ import typing
 # TODO: Improve functions documentation
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)-15s [%(levelname)s] %(message)s',
-)
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format='%(asctime)-15s [%(levelname)s] %(message)s',
+# )
 logger = logging.getLogger(__name__)
 
 
@@ -107,7 +107,14 @@ def create_process(name, args, via_ssh: bool=False):
     if via_ssh:
         time.sleep(SSH_CONNECTION_TIMEOUT + 1)
     else:
-        time.sleep(1)
+        # FIXME: Find a better solution, I changed the time from 1 to 5 s,
+        # cause it was not enough in case of errors with srt-test-messaging
+        # app, e.g. when starting the caller first and there is no listener yet
+        # NOTE: A good thing to consider - what would be in case the child process
+        # finfishes its work earlier than the time specified (5s). It is
+        # important to consider especially in case of fsrt and small files
+        # transmission.
+        time.sleep(5)
     logger.debug(f'Checking that the process has started successfully: {name}')
     is_running, returncode = process_is_running(process)
     if not is_running:
