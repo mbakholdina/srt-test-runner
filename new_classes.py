@@ -136,8 +136,9 @@ class SrtTestMessaging:
             # started locally, not via SSH
             if self.type == SrtApplicationType.sender.value:
                 args += [f'srt://{self.host}:{self.port}?{get_query(self.attrs_values)}']
+            # FIXME: Deleted additonal quotes, needs to be tested with receiver running locally
             if self.type == SrtApplicationType.receiver.value:
-                args += [f'"srt://{self.host}:{self.port}?{get_query(self.attrs_values)}"']
+                args += [f'srt://{self.host}:{self.port}?{get_query(self.attrs_values)}']
         else:
             args += [f'srt://{self.host}:{self.port}']
 
@@ -158,6 +159,7 @@ class SrtTestMessaging:
         
         return args
 
+
 ### IRunner (as of now, IProcess) - process, thread, etc.
 
 class SubProcess:
@@ -174,7 +176,6 @@ class SubProcess:
         logger.info(f'Starting on-premises: {self.obj.name}')
         self.process = shared.create_process(self.obj.name, self.obj.make_args())
         logger.info(f'Started successfully: {self.obj.name}, {self.process}')
-
 
     def stop(self):
         # TODO: use get_status method in order to check whether the process is running or not
@@ -215,6 +216,7 @@ class SSHSubProcess:
         args += [f'{self.username}@{self.host}']
         obj_args = [f'"{arg}"'for arg in self.obj.make_args()]
         args += obj_args
+        # print(args)
         self.process = shared.create_process(self.obj.name, args, True)
         logger.info(f'Started successfully: {self.obj.name}, {self.process}')
 
@@ -231,6 +233,35 @@ class SSHSubProcess:
         pass
 
 
+### Simple Factory ###
+
+class SimpleFactory:
+
+    def create_object(self, obj_type: str, obj_config: dict):
+        obj = None
+
+        if obj_type == 'tshark':
+            obj = Tshark(obj_config)
+        elif obj_type == 'srt-test-messaging':
+            obj = SrtTestMessaging(obj_config)
+        else:
+            print('No matching object found')
+
+        return obj
+
+    def create_runner(self, runner_type: str, obj, runner_config: dict):
+        runner = None
+
+        if runner_type == 'subprocess':
+            runner = SubProcess(obj, runner_config)
+        elif runner_type == 'ssh-subprocess':
+            runner = SSHSubProcess(obj, runner_config)
+        else:
+            print('No matching runner found')
+
+        return runner
+
+
 if __name__ == '__main__':
 
     logging.basicConfig(
@@ -238,23 +269,25 @@ if __name__ == '__main__':
         format='%(asctime)-15s [%(levelname)s] %(message)s',
     )
 
+    factory = SimpleFactory()
+
     ### Start tshark - on-premises ###
 
-    # tshark_config = {
-    #     'interface': 'en0',
-    #     'port': 4200,
-    #     'results_dir': '_results',
-    #     'filename': 'tshark.pcapng',
-    # }
-    # tshark_runner_config = None
+    tshark_config = {
+        'interface': 'en0',
+        'port': 4200,
+        'results_dir': '_results',
+        'filename': 'tshark.pcapng',
+    }
+    tshark_runner_config = None
 
-    # tshark = Tshark(tshark_config)
-    # tshark_runner = SubProcess(tshark, tshark_runner_config)
-
-    # print(tshark.make_args())
-    # tshark_runner.start()
-    # time.sleep(10)
-    # tshark_runner.stop()
+    tshark = factory.create_object('tshark', tshark_config)
+    tshark_runner = factory.create_runner('subprocess', tshark, tshark_runner_config)
+    
+    tshark_runner.start()
+    time.sleep(10)
+    tshark_runner.stop()
+    time.sleep(5)
 
     ### Start tshark - remotely via SSH ###
 
@@ -264,77 +297,79 @@ if __name__ == '__main__':
         'results_dir': '_results',
         'filename': 'tshark.pcapng',
     }
-    thark_runner_config = {
+    tshark_runner_config = {
         'username': 'msharabayko',
         'host': '65.52.227.197',
     }
 
-    tshark = Tshark(tshark_config)
-    tshark_runner = SSHSubProcess(tshark, thark_runner_config)
-
+    tshark = factory.create_object('tshark', tshark_config)
+    tshark_runner = factory.create_runner('ssh-subprocess', tshark, tshark_runner_config)
+    
     tshark_runner.start()
     time.sleep(10)
     tshark_runner.stop()
+    time.sleep(5)
 
     ### Start srt-test-messaging - on-premises ###
 
-    # srt_test_msg_config = {
-    #     'path': '/Users/msharabayko/projects/srt/srt-maxlovic/_build',
-    #     'type': 'rcv',
-    #     'host': '',
-    #     'port': '4200',
-    #     'attrs_values': [
-    #         ('rcvbuf', '12058624'),
-    #         ('congestion', 'live'),
-    #         ('maxcon', '50'),
-    #     ],
-    #     'options_values': [
-    #         ('-msgsize', '1456'),
-    #         ('-reply', '0'),
-    #         ('-printmsg', '0'),
-    #     ],
-    #     'collect_stats': True,
-    #     'description': 'busy_waiting',
-    #     'results_dir': '_results',
-    # } 
-    # srt_test_msg = SrtTestMessaging(srt_test_msg_config)
-    # # print(srt_test_msg.make_args())
+    srt_test_msg_config = {
+        'path': '/Users/msharabayko/projects/srt/srt-maxlovic/_build',
+        'type': 'rcv',
+        'host': '',
+        'port': '4200',
+        'attrs_values': [
+            ('rcvbuf', '12058624'),
+            ('congestion', 'live'),
+            ('maxcon', '50'),
+        ],
+        'options_values': [
+            ('-msgsize', '1456'),
+            ('-reply', '0'),
+            ('-printmsg', '0'),
+        ],
+        'collect_stats': True,
+        'description': 'busy_waiting',
+        'results_dir': '_results',
+    } 
+    srt_test_msg_runner_config = None
 
-    # srt_test_msg_runner_config = None
-    # srt_test_msg_runner = SubProcess(srt_test_msg, srt_test_msg_runner_config)
+    srt_test_msg = factory.create_object('srt-test-messaging', srt_test_msg_config)
+    srt_test_msg_runner = factory.create_runner('subprocess', srt_test_msg, srt_test_msg_runner_config)
 
-    # srt_test_msg_runner.start()
-    # srt_test_msg_runner.get_status()
-    # time.sleep(10)
-    # srt_test_msg_runner.stop()
-    # srt_test_msg_runner.get_status()
+    srt_test_msg_runner.start()
+    time.sleep(10)
+    srt_test_msg_runner.stop()
+    time.sleep(5)
 
     ### Start srt-test-messaging - remotely via SSH ###
 
-    # srt_test_msg_config = {
-    #     'path': '~/projects/srt-maxlovic/_build',
-    #     'type': 'rcv',
-    #     'host': '',
-    #     'port': '4200',
-    #     'attrs_values': [
-    #         ('rcvbuf', '12058624'),
-    #         ('congestion', 'live'),
-    #         ('maxcon', '50'),
-    #     ],
-    #     'options_values': [
-    #         ('-msgsize', '1456'),
-    #         ('-reply', '0'),
-    #         ('-printmsg', '0'),
-    #     ],
-    #     'collect_stats': True,
-    #     'description': 'busy_waiting',
-    #     'results_dir': '_results',
-    # } 
-    # srt_test_msg = SrtTestMessaging(srt_test_msg_config)
-    # print(srt_test_msg.make_args())
+    srt_test_msg_config = {
+        'path': 'projects/srt-maxlovic/_build',
+        'type': 'rcv',
+        'host': '',
+        'port': '4200',
+        'attrs_values': [
+            ('rcvbuf', '12058624'),
+            ('congestion', 'live'),
+            ('maxcon', '50'),
+        ],
+        'options_values': [
+            ('-msgsize', '1456'),
+            ('-reply', '0'),
+            ('-printmsg', '0'),
+        ],
+        'collect_stats': True,
+        'description': 'busy_waiting',
+        'results_dir': '_results',
+    }
+    srt_test_msg_runner_config = {
+        'username': 'msharabayko',
+        'host': '65.52.227.197',
+    }
 
-    # srt_test_msg_runner_config = {
-    #     'username': 'msharabayko',
-    #     'host': '65.52.227.197',
-    # }
-    # srt_test_msg_runner = SSHSubProcess(srt_test_msg, srt_test_msg_runner_config)
+    srt_test_msg = factory.create_object('srt-test-messaging', srt_test_msg_config)
+    srt_test_msg_runner = factory.create_runner('ssh-subprocess', srt_test_msg, srt_test_msg_runner_config)
+
+    srt_test_msg_runner.start()
+    time.sleep(10)
+    srt_test_msg_runner.stop()
