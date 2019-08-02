@@ -1,3 +1,4 @@
+from abc import abstractmethod, ABC
 import enum
 import logging
 import pprint
@@ -34,7 +35,18 @@ def get_query(attrs_values):
 ### IObject (application, hublet, etc.) ###
 # ? IObjectConfig
 
-class Tshark:
+class IObject(ABC):
+    @classmethod
+    @abstractmethod
+    def from_config(cls, config: dict):
+        pass
+
+    @abstractmethod
+    def make_args(self):
+        pass
+
+
+class Tshark(IObject):
 
     def __init__(self, interface: str, port: str, results_dir: str, filename: str):
         self.name = 'tshark'
@@ -75,7 +87,7 @@ class Tshark:
         ]
 
 
-class SrtTestMessaging:
+class SrtTestMessaging(IObject):
 
     def __init__(
         self,
@@ -190,14 +202,33 @@ class SrtTestMessaging:
 
 ### IRunner (as of now, IProcess) - process, thread, etc.
 
-class SubProcess:
+class IRunner(ABC):
+    @classmethod
+    @abstractmethod
+    def from_config(cls, obj: IObject, config: dict):
+        pass
+
+    @abstractmethod
+    def start(self):
+        pass
+
+    @abstractmethod
+    def stop(self):
+        pass
+
+    @abstractmethod
+    def get_status(self):
+        pass
+
+
+class SubProcess(IRunner):
 
     def __init__(self, obj):
         self.obj = obj
         self.process = None
 
     @classmethod
-    def from_config(cls, obj, config: dict=None):
+    def from_config(cls, obj: IObject, config: dict=None):
         return cls(obj)
 
     def start(self):
@@ -219,7 +250,7 @@ class SubProcess:
         return is_running
 
 
-class SSHSubProcess:
+class SSHSubProcess(IRunner):
 
     def __init__(self, obj, username, host):
         self.obj = obj
@@ -228,7 +259,7 @@ class SSHSubProcess:
         self.process = None
 
     @classmethod
-    def from_config(cls, obj, config: dict):
+    def from_config(cls, obj: IObject, config: dict):
         # obj - object (app, hublet) to run
         # config - runner config
         """
@@ -267,7 +298,7 @@ class SSHSubProcess:
 
 class SimpleFactory:
 
-    def create_object(self, obj_type: str, obj_config: dict):
+    def create_object(self, obj_type: str, obj_config: dict) -> IObject:
         obj = None
 
         if obj_type == 'tshark':
@@ -279,7 +310,7 @@ class SimpleFactory:
 
         return obj
 
-    def create_runner(self, runner_type: str, obj, runner_config: dict):
+    def create_runner(self, runner_type: str, obj, runner_config: dict) -> IRunner:
         runner = None
 
         if runner_type == 'subprocess':
