@@ -31,16 +31,21 @@ def get_query(attrs_values):
     return f'{"&".join(query_elements)}'
 
 
-# TODO: Config
-#       Validate that the config dict has all the keys needed
-#       Make enum for srt type, object_name, runner_name
-
 ### IObject (application, hublet, etc.) ###
 # ? IObjectConfig
 
 class Tshark:
 
-    def __init__(self, config: dict):
+    def __init__(self, interface: str, port: str, results_dir: str, filename: str):
+        self.name = 'tshark'
+        self.interface = interface
+        self.port = port
+        # TODO: pathlib.Path
+        self.results_dir = results_dir
+        self.filename = filename
+
+    @classmethod
+    def from_config(cls, config: dict):
         # config - object config (parameters needed to form the args for cmd)
         """ 
         config = {
@@ -50,14 +55,12 @@ class Tshark:
             'filename': 'tshark.pcapng',
         }
         """
-        self.config = config
-
-        self.name = 'tshark'
-        self.interface = config['interface']
-        self.port = config['port']
-        self.results_dir = config['results_dir']
-        self.filename = config['filename']
-        # TODO: make filepath attr
+        return cls(
+            config['interface'],
+            config['port'],
+            config['results_dir'],
+            config['filename']
+        )
 
     def make_args(self):
         # TODO: Convert to pathlib.Path
@@ -74,7 +77,43 @@ class Tshark:
 
 class SrtTestMessaging:
 
-    def __init__(self, config: dict):
+    def __init__(
+        self,
+        type,
+        path,
+        host,
+        port,
+        attrs_values,
+        options_values,
+        collect_stats,
+        description,
+        results_dir
+    ):
+        """
+        Types:
+        number,
+        path_to_srt: str,
+        host: str,
+        port: str,
+        attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+        options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+        description: str=None,
+        collect_stats: bool=False,
+        results_dir: pathlib.Path=None
+        """
+        self.name = 'srt-test-messaging'
+        self.type = type
+        self.path = path
+        self.host = host
+        self.port = port
+        self.attrs_values = attrs_values
+        self.options_values = options_values
+        self.collect_stats = collect_stats
+        self.description = description
+        self.results_dir = results_dir
+
+    @classmethod
+    def from_config(cls, config: dict):
         """
         config = {
             'path': '/Users/msharabayko/projects/srt/srt-maxlovic/_build',
@@ -102,30 +141,18 @@ class SrtTestMessaging:
         options_values:
             A list of srt-test-messaging application options in a format
             [('-msgsize', '1456'), ('-reply', '0'), ('-printmsg', '0')].
-
-        Types:
-        number,
-        path_to_srt: str,
-        host: str,
-        port: str,
-        attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
-        options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
-        description: str=None,
-        collect_stats: bool=False,
-        results_dir: pathlib.Path=None
         """
-        self.config = config
-
-        self.name = 'srt-test-messaging'
-        self.type = config['type']
-        self.path = config['path']
-        self.host = config['host']
-        self.port = config['port']
-        self.attrs_values = config['attrs_values']
-        self.options_values = config['options_values']
-        self.collect_stats = config['collect_stats']
-        self.description = config['description']
-        self.results_dir = config['results_dir']
+        return cls(
+            config['type'],
+            config['path'],
+            config['host'],
+            config['port'],
+            config['attrs_values'],
+            config['options_values'],
+            config['collect_stats'],
+            config['description'],
+            config['results_dir']
+        )
 
     def make_args(self):
         # TODO: Add receiver support
@@ -165,13 +192,13 @@ class SrtTestMessaging:
 
 class SubProcess:
 
-    def __init__(self, obj, config):
-        # obj - object (app, hublet) to run
-        # config - runner config
+    def __init__(self, obj):
         self.obj = obj
-        self.config = config
-
         self.process = None
+
+    @classmethod
+    def from_config(cls, obj, config: dict=None):
+        return cls(obj)
 
     def start(self):
         logger.info(f'Starting on-premises: {self.obj.name}')
@@ -194,7 +221,14 @@ class SubProcess:
 
 class SSHSubProcess:
 
-    def __init__(self, obj, config):
+    def __init__(self, obj, username, host):
+        self.obj = obj
+        self.username = username
+        self.host = host
+        self.process = None
+
+    @classmethod
+    def from_config(cls, obj, config: dict):
         # obj - object (app, hublet) to run
         # config - runner config
         """
@@ -203,12 +237,7 @@ class SSHSubProcess:
             'host': '137.135.161.223',
         }
         """
-        self.obj = obj
-        self.config = config
-
-        self.process = None
-        self.username = config['username']
-        self.host = config['host']
+        return cls(obj, config['username'], config['host'])
 
     def start(self):
         logger.info(f'Starting remotely via SSH: {self.obj.name}')
@@ -242,9 +271,9 @@ class SimpleFactory:
         obj = None
 
         if obj_type == 'tshark':
-            obj = Tshark(obj_config)
+            obj = Tshark.from_config(obj_config)
         elif obj_type == 'srt-test-messaging':
-            obj = SrtTestMessaging(obj_config)
+            obj = SrtTestMessaging.from_config(obj_config)
         else:
             print('No matching object found')
 
@@ -254,9 +283,9 @@ class SimpleFactory:
         runner = None
 
         if runner_type == 'subprocess':
-            runner = SubProcess(obj, runner_config)
+            runner = SubProcess.from_config(obj, runner_config)
         elif runner_type == 'ssh-subprocess':
-            runner = SSHSubProcess(obj, runner_config)
+            runner = SSHSubProcess.from_config(obj, runner_config)
         else:
             print('No matching runner found')
 
