@@ -285,7 +285,7 @@ class SSHSubProcess(IRunner):
         # TODO: use get_status method in order to check whether the process is running or not
         # instead of currently implemented logic in cleanup_process
         # TODO: change cleanup function to have only one input - process
-        logger.info(f'Stopping on-premises: {self.obj.name}, {self.process}')
+        logger.info(f'Stopping remotely via SSH: {self.obj.name}, {self.process}')
         shared.cleanup_process((self.obj.name, self.process))
         logger.info(f'Stopped successfully: {self.obj.name}, {self.process}')
 
@@ -375,7 +375,7 @@ def create_experiment_config():
         'results_dir': '_results',
     } 
     srt_test_msg_runner_config = None
-    config['task3']= create_task_config('srt-test-messaging', srt_test_msg_config, 'subprocess', srt_test_msg_runner_config)
+    # config['task3']= create_task_config('srt-test-messaging', srt_test_msg_config, 'subprocess', srt_test_msg_runner_config)
 
     srt_test_msg_config = {
         'path': 'projects/srt-maxlovic/_build',
@@ -400,12 +400,35 @@ def create_experiment_config():
         'username': 'msharabayko',
         'host': '65.52.227.197',
     }
-    config['task4']= create_task_config('srt-test-messaging', srt_test_msg_config, 'ssh-subprocess', srt_test_msg_runner_config)
+    # config['task4']= create_task_config('srt-test-messaging', srt_test_msg_config, 'ssh-subprocess', srt_test_msg_runner_config)
 
     pp = pprint.PrettyPrinter(indent=2)
     pp.pprint(config)
 
     return config
+
+
+### IExperimentRunner -> SingleExperimentRunner, TestRunner, CombinedTestRunner ###
+
+class SingleExperimentRunner:
+
+    def __init__(self, factory: SimpleFactory, config: dict):
+        self.factory = factory
+        self.config = config
+        self.tasks = []
+
+    def start(self):
+        for task, task_config in self.config.items():
+            obj = self.factory.create_object(task_config['obj_type'], task_config['obj_config'])
+            obj_runner = self.factory.create_runner(task_config['runner_type'], obj, task_config['runner_config'])
+            obj_runner.start()
+            time.sleep(1)
+            self.tasks += [(obj, obj_runner)]
+            
+    def stop(self):
+        for obj, obj_runner in self.tasks:
+            obj_runner.stop()
+            time.sleep(1)
 
 
 if __name__ == '__main__':
@@ -417,11 +440,8 @@ if __name__ == '__main__':
 
     factory = SimpleFactory()
     config = create_experiment_config()
-
-    for task, task_config in config.items():
-        obj = factory.create_object(task_config['obj_type'], task_config['obj_config'])
-        obj_runner = factory.create_runner(task_config['runner_type'], obj, task_config['runner_config'])
-        obj_runner.start()
-        time.sleep(10)
-        obj_runner.stop()
-        time.sleep(5)
+    exp_runner = SingleExperimentRunner(factory, config)
+    exp_runner.start()
+    logger.info('Sleeping 30s ...')
+    time.sleep(30)
+    exp_runner.stop()
