@@ -1,5 +1,6 @@
 import enum
 import logging
+import pprint
 import time
 
 import shared
@@ -262,17 +263,17 @@ class SimpleFactory:
         return runner
 
 
-if __name__ == '__main__':
+def create_task_config(obj_type, obj_config, runner_type, runner_config):
+    return {
+        'obj_type': obj_type,
+        'obj_config': obj_config,
+        'runner_type': runner_type,
+        'runner_config': runner_config
+    }
 
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)-15s [%(levelname)s] %(message)s',
-    )
 
-    factory = SimpleFactory()
-
-    ### Start tshark - on-premises ###
-
+def create_experiment_config():
+    config = {}
     tshark_config = {
         'interface': 'en0',
         'port': 4200,
@@ -280,16 +281,7 @@ if __name__ == '__main__':
         'filename': 'tshark.pcapng',
     }
     tshark_runner_config = None
-
-    tshark = factory.create_object('tshark', tshark_config)
-    tshark_runner = factory.create_runner('subprocess', tshark, tshark_runner_config)
-    
-    tshark_runner.start()
-    time.sleep(10)
-    tshark_runner.stop()
-    time.sleep(5)
-
-    ### Start tshark - remotely via SSH ###
+    config['task1']= create_task_config('tshark', tshark_config, 'subprocess', tshark_runner_config)
 
     tshark_config = {
         'interface': 'eth0',
@@ -301,16 +293,7 @@ if __name__ == '__main__':
         'username': 'msharabayko',
         'host': '65.52.227.197',
     }
-
-    tshark = factory.create_object('tshark', tshark_config)
-    tshark_runner = factory.create_runner('ssh-subprocess', tshark, tshark_runner_config)
-    
-    tshark_runner.start()
-    time.sleep(10)
-    tshark_runner.stop()
-    time.sleep(5)
-
-    ### Start srt-test-messaging - on-premises ###
+    config['task2']= create_task_config('tshark', tshark_config, 'ssh-subprocess', tshark_runner_config)
 
     srt_test_msg_config = {
         'path': '/Users/msharabayko/projects/srt/srt-maxlovic/_build',
@@ -332,16 +315,7 @@ if __name__ == '__main__':
         'results_dir': '_results',
     } 
     srt_test_msg_runner_config = None
-
-    srt_test_msg = factory.create_object('srt-test-messaging', srt_test_msg_config)
-    srt_test_msg_runner = factory.create_runner('subprocess', srt_test_msg, srt_test_msg_runner_config)
-
-    srt_test_msg_runner.start()
-    time.sleep(10)
-    srt_test_msg_runner.stop()
-    time.sleep(5)
-
-    ### Start srt-test-messaging - remotely via SSH ###
+    config['task3']= create_task_config('srt-test-messaging', srt_test_msg_config, 'subprocess', srt_test_msg_runner_config)
 
     srt_test_msg_config = {
         'path': 'projects/srt-maxlovic/_build',
@@ -366,10 +340,28 @@ if __name__ == '__main__':
         'username': 'msharabayko',
         'host': '65.52.227.197',
     }
+    config['task4']= create_task_config('srt-test-messaging', srt_test_msg_config, 'ssh-subprocess', srt_test_msg_runner_config)
 
-    srt_test_msg = factory.create_object('srt-test-messaging', srt_test_msg_config)
-    srt_test_msg_runner = factory.create_runner('ssh-subprocess', srt_test_msg, srt_test_msg_runner_config)
+    pp = pprint.PrettyPrinter(indent=2)
+    pp.pprint(config)
 
-    srt_test_msg_runner.start()
-    time.sleep(10)
-    srt_test_msg_runner.stop()
+    return config
+
+
+if __name__ == '__main__':
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)-15s [%(levelname)s] %(message)s',
+    )
+
+    factory = SimpleFactory()
+    config = create_experiment_config()
+
+    for task, task_config in config.items():
+        obj = factory.create_object(task_config['obj_type'], task_config['obj_config'])
+        obj_runner = factory.create_runner(task_config['runner_type'], obj, task_config['runner_config'])
+        obj_runner.start()
+        time.sleep(10)
+        obj_runner.stop()
+        time.sleep(5)
