@@ -221,7 +221,7 @@ class IRunner(ABC):
         pass
 
 
-class SubProcess(IRunner):
+class Subprocess(IRunner):
 
     def __init__(self, obj):
         self.obj = obj
@@ -250,7 +250,7 @@ class SubProcess(IRunner):
         return is_running
 
 
-class SSHSubProcess(IRunner):
+class SSHSubprocess(IRunner):
 
     def __init__(self, obj, username, host):
         self.obj = obj
@@ -310,13 +310,13 @@ class SimpleFactory:
 
         return obj
 
-    def create_runner(self, runner_type: str, obj, runner_config: dict) -> IRunner:
+    def create_runner(self, obj, runner_type: str, runner_config: dict) -> IRunner:
         runner = None
 
         if runner_type == 'subprocess':
-            runner = SubProcess.from_config(obj, runner_config)
+            runner = Subprocess.from_config(obj, runner_config)
         elif runner_type == 'ssh-subprocess':
-            runner = SSHSubProcess.from_config(obj, runner_config)
+            runner = SSHSubprocess.from_config(obj, runner_config)
         else:
             print('No matching runner found')
 
@@ -420,7 +420,7 @@ class SingleExperimentRunner:
     def start(self):
         for task, task_config in self.config.items():
             obj = self.factory.create_object(task_config['obj_type'], task_config['obj_config'])
-            obj_runner = self.factory.create_runner(task_config['runner_type'], obj, task_config['runner_config'])
+            obj_runner = self.factory.create_runner(obj, task_config['runner_type'], task_config['runner_config'])
             obj_runner.start()
             time.sleep(1)
             self.tasks += [(obj, obj_runner)]
