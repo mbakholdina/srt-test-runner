@@ -6,8 +6,8 @@ import new_classes
 TSHARK_CONFIG = {
     'interface': 'en0',
     'port': 4200,
-    'results_dir': '_results',
-    'filename': 'tshark.pcapng',
+    'dirpath': '_results',
+    'filename': 'tshark_dump',
 }
 
 SRT_TEST_MESSAGING_CONFIG = {
@@ -27,7 +27,7 @@ SRT_TEST_MESSAGING_CONFIG = {
     ],
     'collect_stats': True,
     'description': 'busy_waiting',
-    'results_dir': '_results',
+    'dirpath': '_results',
 } 
 
 SUBPROCESS_CONFIG = None

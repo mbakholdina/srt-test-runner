@@ -1,8 +1,12 @@
 from abc import abstractmethod, ABC
 import enum
 import logging
+import pathlib
 import pprint
 import time
+
+import fabric
+import paramiko
 
 import shared
 
@@ -32,10 +36,21 @@ def get_query(attrs_values):
     return f'{"&".join(query_elements)}'
 
 
+class DirectoryHasNotBeenCreated(Exception):
+    pass
+
+class ProcessHasBeenStartedAlready(Exception):
+    pass
+
+
 ### IObject (application, hublet, etc.) ###
 # ? IObjectConfig
 
 class IObject(ABC):
+    # ??? Name, dirpath=None, filepath=None - obligitary attributes
+    # I work with this attrs in IRunner
+    # ??? Is this a good approach
+
     @classmethod
     @abstractmethod
     def from_config(cls, config: dict):
@@ -48,13 +63,21 @@ class IObject(ABC):
 
 class Tshark(IObject):
 
-    def __init__(self, interface: str, port: str, results_dir: str, filename: str):
+    def __init__(self, interface: str, port: str, filename: str, dirpath: str):
+        # if the object assumes to produce some output like dump files, stats files,
+        # dirpath should be specified
+        # TODO: Make dirpath optional, make check that dirpath != None and 
+        # only then add -w option
         self.name = 'tshark'
         self.interface = interface
         self.port = port
-        # TODO: pathlib.Path
-        self.results_dir = results_dir
         self.filename = filename
+        # TODO: pathlib.Path
+        self.dirpath = dirpath
+        # TODO: Convert to pathlib.Path
+        # filepath = self.dirpath / self.filename
+        # ? property
+        self.filepath = self.dirpath + '/' + self.filename + '.pcapng'
 
     @classmethod
     def from_config(cls, config: dict):
@@ -63,27 +86,24 @@ class Tshark(IObject):
         config = {
             'interface': 'en0',
             'port': 4200,
-            'results_dir': '_results',
-            'filename': 'tshark.pcapng',
+            'filename': 'tshark_dump',
+            'dirpath': '_results',
         }
         """
         return cls(
             config['interface'],
             config['port'],
-            config['results_dir'],
-            config['filename']
+            config['filename'],
+            config['dirpath']
         )
 
     def make_args(self):
-        # TODO: Convert to pathlib.Path
-        # filepath = self.results_dir / self.filename
-        filepath = self.results_dir + '/' + self.filename
         return [
             'tshark', 
             '-i', self.interface, 
             '-f', f'udp port {self.port}', 
             '-s', '1500', 
-            '-w', filepath
+            '-w', self.filepath
         ]
 
 
@@ -99,7 +119,7 @@ class SrtTestMessaging(IObject):
         options_values,
         collect_stats,
         description,
-        results_dir
+        dirpath
     ):
         """
         Types:
@@ -111,7 +131,7 @@ class SrtTestMessaging(IObject):
         options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
         description: str=None,
         collect_stats: bool=False,
-        results_dir: pathlib.Path=None
+        dirpath: pathlib.Path=None
         """
         self.name = 'srt-test-messaging'
         self.type = type
@@ -122,7 +142,9 @@ class SrtTestMessaging(IObject):
         self.options_values = options_values
         self.collect_stats = collect_stats
         self.description = description
-        self.results_dir = results_dir
+        self.dirpath = dirpath
+        # TODO: Determine
+        self.filepath = None
 
     @classmethod
     def from_config(cls, config: dict):
@@ -144,7 +166,7 @@ class SrtTestMessaging(IObject):
             ],
             'collect_stats': True,
             'description': 'busy_waiting',
-            'results_dir': '_results',
+            'dirpath': '_results',
         } 
 
         attrs_values:
@@ -163,7 +185,7 @@ class SrtTestMessaging(IObject):
             config['options_values'],
             config['collect_stats'],
             config['description'],
-            config['results_dir']
+            config['dirpath']
         )
 
     def make_args(self):
@@ -190,8 +212,8 @@ class SrtTestMessaging(IObject):
                 args += [option, value]
 
         if self.collect_stats:
-            # stats_file = self.results_dir / f'{self.description}-stats-{self.type}.csv'
-            stats_file = self.results_dir + '/' + f'{self.description}-stats-{self.type}.csv'
+            # stats_file = self.dirpath / f'{self.description}-stats-{self.type}.csv'
+            stats_file = self.dirpath + '/' + f'{self.description}-stats-{self.type}.csv'
             args += [
                 '-statsfreq', '1',
                 '-statsfile', stats_file,
@@ -201,8 +223,14 @@ class SrtTestMessaging(IObject):
 
 
 ### IRunner (as of now, IProcess) - process, thread, etc.
+# ? IObjectRunner
 
 class IRunner(ABC):
+    @staticmethod
+    @abstractmethod
+    def _create_directory(dirpath: str):
+        pass
+
     @classmethod
     @abstractmethod
     def from_config(cls, obj: IObject, config: dict):
@@ -220,12 +248,28 @@ class IRunner(ABC):
     def get_status(self):
         pass
 
+    @abstractmethod
+    def collect_results(self):
+        pass
+
 
 class Subprocess(IRunner):
 
     def __init__(self, obj):
         self.obj = obj
+
         self.process = None
+        self.is_started = False
+
+    @staticmethod
+    def _create_directory(dirpath: str):
+        logger.info(f'Creating a directory for saving results: {dirpath}')
+        dirpath = pathlib.Path(dirpath)
+        if dirpath.exists():
+            # shutil.rmtree(dirpath)
+            return
+        dirpath.mkdir(parents=True)
+        logger.info('Created successfully')
 
     @classmethod
     def from_config(cls, obj: IObject, config: dict=None):
@@ -233,7 +277,17 @@ class Subprocess(IRunner):
 
     def start(self):
         logger.info(f'Starting on-premises: {self.obj.name}')
+
+        if self.is_started is True:
+            raise ValueError(f'Process has been started already: {self.obj.name}, {self.process}')
+
+        if self.obj.dirpath != None:
+            self._create_directory(self.obj.dirpath)
+
+        # TODO: Try, except + rename to start_subprocess + rename exceptions inside
         self.process = shared.create_process(self.obj.name, self.obj.make_args())
+        self.is_started = True
+
         logger.info(f'Started successfully: {self.obj.name}, {self.process}')
 
     def stop(self):
@@ -241,13 +295,30 @@ class Subprocess(IRunner):
         # instead of currently implemented logic in cleanup_process
         # TODO: change cleanup function to have only one input - process
         logger.info(f'Stopping on-premises: {self.obj.name}, {self.process}')
+
+        if self.is_started is False:
+            raise ValueError(f'Process has not been started yet: {self.obj.name}')
+
         shared.cleanup_process((self.obj.name, self.process))
         logger.info(f'Stopped successfully: {self.obj.name}, {self.process}')
 
     def get_status(self):
         # TODO: Adapt process_is_running()
-        is_running, returncode = shared.process_is_running(self.process)
-        return is_running
+        # is_running, returncode = shared.process_is_running(self.process)
+        # return is_running
+        pass
+
+    def collect_results(self):
+        logger.info('Collecting results')
+        
+        if self.is_started is False:
+            raise ValueError(f'Process has not been started yet: {self.obj.name}')
+
+        logger.info('Not implemented')
+
+        # TODO: Implement
+        # exit code, stdout, stderr, files
+        # download files via scp for SSHSubprocess
 
 
 class SSHSubprocess(IRunner):
@@ -256,7 +327,48 @@ class SSHSubprocess(IRunner):
         self.obj = obj
         self.username = username
         self.host = host
+
         self.process = None
+        self.is_started = False
+
+    @staticmethod
+    def _create_directory(dirpath: str, username: str, host: str):
+        logger.info(f'Creating a directory for saving results: {dirpath}')
+
+        try:
+            # FIXME: By default Paramiko will attempt to connect to a running 
+            # SSH agent (Unix style, e.g. a live SSH_AUTH_SOCK, or Pageant if 
+            # one is on Windows). That's why promt for login-password is not 
+            # disabled under condition that password is not configured via 
+            # connect_kwargs.password
+            with fabric.Connection(host=host, user=username) as c:
+                # result = c.run(f'rm -rf {results_dir}')
+                # if result.exited != 0:
+                #     logger.info(f'Not created: {result}')
+                #     return
+                result = c.run(f'mkdir -p {dirpath}')
+                # print(result.succeeded)
+                # print(result.failed)
+                # print(result.exited)
+                # print(result)
+                if result.exited != 0:
+                    logger.debug(f'Directory has not been created: {dirpath}')
+                    raise DirectoryHasNotBeenCreated(f'Username: {username}, host: {host}, dirpath: {dirpath}')
+        except paramiko.ssh_exception.SSHException as error:
+            logger.info(
+                f'Exception occured ({error.__class__.__name__}): {error}. '
+                'Check that the ssh-agent has been started.'
+            )
+            raise
+        except TimeoutError as error:
+            logger.info(
+                f'Exception occured ({error.__class__.__name__}): {error}. '
+                'Check that IP address of the remote machine is correct and the '
+                'machine is not down.'
+            )
+            raise
+
+        logger.info(f'Created successfully')
 
     @classmethod
     def from_config(cls, obj: IObject, config: dict):
@@ -272,13 +384,22 @@ class SSHSubprocess(IRunner):
 
     def start(self):
         logger.info(f'Starting remotely via SSH: {self.obj.name}')
+
+        if self.is_started is True:
+            raise ValueError(f'Process has been started already: {self.obj.name}, {self.process}')
+
+        if self.obj.dirpath != None:
+            self._create_directory(self.obj.dirpath, self.username, self.host)
+
         args = []
         args += shared.SSH_COMMON_ARGS
         args += [f'{self.username}@{self.host}']
         obj_args = [f'"{arg}"'for arg in self.obj.make_args()]
         args += obj_args
-        # print(args)
+        
         self.process = shared.create_process(self.obj.name, args, True)
+        self.is_started = True
+
         logger.info(f'Started successfully: {self.obj.name}, {self.process}')
 
     def stop(self):
@@ -286,12 +407,39 @@ class SSHSubprocess(IRunner):
         # instead of currently implemented logic in cleanup_process
         # TODO: change cleanup function to have only one input - process
         logger.info(f'Stopping remotely via SSH: {self.obj.name}, {self.process}')
+
+        if self.is_started is False:
+            raise ValueError(f'Process has not been started yet: {self.obj.name}')
+
         shared.cleanup_process((self.obj.name, self.process))
         logger.info(f'Stopped successfully: {self.obj.name}, {self.process}')
 
     def get_status(self):
         # TODO: Adapt process_is_running()
         pass
+
+    def collect_results(self):
+        logger.info('Collecting results')
+        
+        if self.is_started is False:
+            raise ValueError(f'Process has not been started yet: {self.obj.name}')
+
+        if self.obj.filepath is None:
+            return
+
+        with fabric.Connection(host=self.host, user=self.username) as c:
+            result = c.get(self.obj.filepath)
+            # TODO: Implement
+            # http://docs.fabfile.org/en/1.14/api/core/operations.html
+            # http://docs.fabfile.org/en/2.3/api/transfer.html
+            
+            # if result.exited != 0:
+            #     logger.debug(f'Directory has not been created: {dirpath}')
+            #     raise DirectoryHasNotBeenCreated(f'Username: {username}, host: {host}, dirpath: {dirpath}')
+
+        # TODO: Implement
+        # exit code, stdout, stderr, files
+        # download files via scp for SSHSubprocess
 
 
 ### Simple Factory ###
@@ -323,6 +471,8 @@ class SimpleFactory:
         return runner
 
 
+### Configs ###
+
 def create_task_config(obj_type, obj_config, runner_type, runner_config):
     return {
         'obj_type': obj_type,
@@ -333,12 +483,14 @@ def create_task_config(obj_type, obj_config, runner_type, runner_config):
 
 
 def create_experiment_config():
+    dirpath = '_results'
+
     config = {}
     tshark_config = {
         'interface': 'en0',
         'port': 4200,
-        'results_dir': '_results',
-        'filename': 'tshark.pcapng',
+        'filename': 'tshark_dump',
+        'dirpath': '_results_2',
     }
     tshark_runner_config = None
     config['task1']= create_task_config('tshark', tshark_config, 'subprocess', tshark_runner_config)
@@ -346,12 +498,12 @@ def create_experiment_config():
     tshark_config = {
         'interface': 'eth0',
         'port': 4200,
-        'results_dir': '_results',
-        'filename': 'tshark.pcapng',
+        'filename': 'tshark_dump',
+        'dirpath': '_results_3',
     }
     tshark_runner_config = {
         'username': 'msharabayko',
-        'host': '65.52.227.197',
+        'host': '137.135.164.27',
     }
     config['task2']= create_task_config('tshark', tshark_config, 'ssh-subprocess', tshark_runner_config)
 
@@ -372,7 +524,7 @@ def create_experiment_config():
         ],
         'collect_stats': True,
         'description': 'busy_waiting',
-        'results_dir': '_results',
+        'dirpath': '_results',
     } 
     srt_test_msg_runner_config = None
     # config['task3']= create_task_config('srt-test-messaging', srt_test_msg_config, 'subprocess', srt_test_msg_runner_config)
@@ -394,7 +546,7 @@ def create_experiment_config():
         ],
         'collect_stats': True,
         'description': 'busy_waiting',
-        'results_dir': '_results',
+        'dirpath': '_results',
     }
     srt_test_msg_runner_config = {
         'username': 'msharabayko',
@@ -408,7 +560,7 @@ def create_experiment_config():
     return config
 
 
-### IExperimentRunner -> SingleExperimentRunner, TestRunner, CombinedTestRunner ###
+### ITestRunner -> SingleExperimentRunner, TestRunner, CombinedTestRunner ###
 
 class SingleExperimentRunner:
 
@@ -428,13 +580,14 @@ class SingleExperimentRunner:
     def stop(self):
         for obj, obj_runner in self.tasks:
             obj_runner.stop()
+            obj_runner.collect_results()
             time.sleep(1)
 
 
 if __name__ == '__main__':
 
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format='%(asctime)-15s [%(levelname)s] %(message)s',
     )
 
