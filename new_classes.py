@@ -223,7 +223,7 @@ class SrtTestMessaging(IObject):
 
 
 ### IRunner (as of now, IProcess) - process, thread, etc.
-# ? IObjectRunner
+# ? IObjectRunner, ITaskRunner
 
 class IRunner(ABC):
     @staticmethod
@@ -267,6 +267,7 @@ class Subprocess(IRunner):
         dirpath = pathlib.Path(dirpath)
         if dirpath.exists():
             # shutil.rmtree(dirpath)
+            logger.info('Already exists')
             return
         dirpath.mkdir(parents=True)
         logger.info('Created successfully')
@@ -278,7 +279,7 @@ class Subprocess(IRunner):
     def start(self):
         logger.info(f'Starting on-premises: {self.obj.name}')
 
-        if self.is_started is True:
+        if self.is_started:
             raise ValueError(f'Process has been started already: {self.obj.name}, {self.process}')
 
         if self.obj.dirpath != None:
@@ -296,7 +297,7 @@ class Subprocess(IRunner):
         # TODO: change cleanup function to have only one input - process
         logger.info(f'Stopping on-premises: {self.obj.name}, {self.process}')
 
-        if self.is_started is False:
+        if not self.is_started:
             raise ValueError(f'Process has not been started yet: {self.obj.name}')
 
         shared.cleanup_process((self.obj.name, self.process))
@@ -311,7 +312,7 @@ class Subprocess(IRunner):
     def collect_results(self):
         logger.info('Collecting results')
         
-        if self.is_started is False:
+        if not self.is_started:
             raise ValueError(f'Process has not been started yet: {self.obj.name}')
 
         logger.info('Not implemented')
@@ -385,7 +386,7 @@ class SSHSubprocess(IRunner):
     def start(self):
         logger.info(f'Starting remotely via SSH: {self.obj.name}')
 
-        if self.is_started is True:
+        if self.is_started:
             raise ValueError(f'Process has been started already: {self.obj.name}, {self.process}')
 
         if self.obj.dirpath != None:
@@ -408,7 +409,7 @@ class SSHSubprocess(IRunner):
         # TODO: change cleanup function to have only one input - process
         logger.info(f'Stopping remotely via SSH: {self.obj.name}, {self.process}')
 
-        if self.is_started is False:
+        if not self.is_started:
             raise ValueError(f'Process has not been started yet: {self.obj.name}')
 
         shared.cleanup_process((self.obj.name, self.process))
@@ -421,7 +422,7 @@ class SSHSubprocess(IRunner):
     def collect_results(self):
         logger.info('Collecting results')
         
-        if self.is_started is False:
+        if not self.is_started:
             raise ValueError(f'Process has not been started yet: {self.obj.name}')
 
         if self.obj.filepath is None:
@@ -473,39 +474,69 @@ class SimpleFactory:
 
 ### Configs ###
 
-def create_task_config(obj_type, obj_config, runner_type, runner_config):
+def create_task_config(
+    obj_type, 
+    obj_config, 
+    runner_type, 
+    runner_config, 
+    sleep_after_start: str=None, 
+    sleep_after_stop: str=None,
+    stop_order: int=None
+):
     return {
         'obj_type': obj_type,
         'obj_config': obj_config,
         'runner_type': runner_type,
-        'runner_config': runner_config
+        'runner_config': runner_config,
+        'sleep_after_start': sleep_after_start,
+        'sleep_after_stop': sleep_after_stop,
+        'stop_order': stop_order,
     }
 
 
-def create_experiment_config():
+def create_experiment_config(stop_after: int, ignore_stop_order: bool=True):
     dirpath = '_results'
+    sleep_after_start = 3
+    sleep_after_stop = 1
 
     config = {}
+    config['stop_after'] = stop_after
+    config['ignore_stop_order'] = ignore_stop_order
+
+    config['tasks'] = {}
     tshark_config = {
         'interface': 'en0',
         'port': 4200,
-        'filename': 'tshark_dump',
-        'dirpath': '_results_2',
+        'filename': 'tshark_snd',
+        'dirpath': '_results',
     }
     tshark_runner_config = None
-    config['task1']= create_task_config('tshark', tshark_config, 'subprocess', tshark_runner_config)
+    config['tasks']['0'] = create_task_config(
+        'tshark', 
+        tshark_config, 
+        'subprocess', 
+        tshark_runner_config,
+        sleep_after_start
+    )
 
     tshark_config = {
         'interface': 'eth0',
         'port': 4200,
-        'filename': 'tshark_dump',
-        'dirpath': '_results_3',
+        'filename': 'tshark_rcv',
+        'dirpath': '_results_remote',
     }
     tshark_runner_config = {
         'username': 'msharabayko',
         'host': '137.135.164.27',
     }
-    config['task2']= create_task_config('tshark', tshark_config, 'ssh-subprocess', tshark_runner_config)
+    config['tasks']['1'] = create_task_config(
+        'tshark', 
+        tshark_config, 
+        'ssh-subprocess', 
+        tshark_runner_config,
+        None,
+        sleep_after_stop
+    )
 
     srt_test_msg_config = {
         'path': '/Users/msharabayko/projects/srt/srt-maxlovic/_build',
@@ -561,27 +592,66 @@ def create_experiment_config():
 
 
 ### ITestRunner -> SingleExperimentRunner, TestRunner, CombinedTestRunner ###
+# The methods will be similar to IRunner
 
 class SingleExperimentRunner:
 
     def __init__(self, factory: SimpleFactory, config: dict):
         self.factory = factory
         self.config = config
+
+        # TODO: Add attributes from config
+
+        # TODO: Create a class for task: obj, obj_runner, sleep_after_stop, stop_order
         self.tasks = []
+        self.is_started = False
+
+    # TODO: create_directory
 
     def start(self):
-        for task, task_config in self.config.items():
+        logger.info('[SingleExperimentRunner] Starting experiment')
+
+        if self.is_started:
+            raise ValueError(f'Experiment has been started already')
+
+        for task, task_config in self.config['tasks'].items():
             obj = self.factory.create_object(task_config['obj_type'], task_config['obj_config'])
             obj_runner = self.factory.create_runner(obj, task_config['runner_type'], task_config['runner_config'])
             obj_runner.start()
-            time.sleep(1)
-            self.tasks += [(obj, obj_runner)]
+            self.tasks += [(obj, obj_runner, task_config['sleep_after_stop'], task_config['stop_order'])]
+            if task_config['sleep_after_start'] is not None:
+                logger.info(f"[SingleExperimentRunner] Sleeping {task_config['sleep_after_start']} s")
+                time.sleep(task_config['sleep_after_start'])
+
+        self.is_started = True
             
     def stop(self):
-        for obj, obj_runner in self.tasks:
-            obj_runner.stop()
+        logger.info('[SingleExperimentRunner] Stopping experiment')
+
+        if not self.is_started:
+            raise ValueError(f'Experiment has not been started yet')
+
+        # TODO: Stop the tasks in reverse order
+        if self.config['ignore_stop_order']:
+            for _, obj_runner, sleep_after_stop, _ in self.tasks:
+                obj_runner.stop()
+                if sleep_after_stop is not None:
+                    logger.info(f"[SingleExperimentRunner] Sleeping {sleep_after_stop}s ...")
+                    time.sleep(sleep_after_stop)
+
+        # TODO: Implement stopping tasks according to the specified stop order
+
+    def get_status(self):
+        pass
+
+    def collect_results(self):
+        logger.info('[SingleExperimentRunner] Collecting experiment results')
+
+        if not self.is_started:
+            raise ValueError(f'Experiment has not been started yet')
+
+        for _, obj_runner, _, _ in self.tasks:
             obj_runner.collect_results()
-            time.sleep(1)
 
 
 if __name__ == '__main__':
@@ -592,9 +662,19 @@ if __name__ == '__main__':
     )
 
     factory = SimpleFactory()
-    config = create_experiment_config()
+
+    # time to stream
+    stop_after = 20
+    # This will be changed to loading the config from file
+    # and then adjusting it (srt parameters, etc.) knowing what kind of
+    # experiment we are going to do. Or we will provide a cli to user with
+    # the list of parameters we need to know (or it would be just a file with the list of params),
+    # and then config file for the experiment will be built in a function and parameters will be adjusted
+    config = create_experiment_config(stop_after)
+
     exp_runner = SingleExperimentRunner(factory, config)
     exp_runner.start()
-    logger.info('Sleeping 30s ...')
-    time.sleep(30)
+    logger.info(f'Sleeping {stop_after} s ...')
+    time.sleep(stop_after)
     exp_runner.stop()
+    exp_runner.collect_results()
