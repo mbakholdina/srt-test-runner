@@ -8,6 +8,7 @@ import time
 import fabric
 import paramiko
 
+from new_processes import Process, ProcessNotStarted, ProcessNotStopped
 import shared
 
 
@@ -36,10 +37,50 @@ def get_query(attrs_values):
     return f'{"&".join(query_elements)}'
 
 
-class DirectoryHasNotBeenCreated(Exception):
-    pass
+def get_relative_paths(uri: str):
+    """
+    Depending on the ``uri`` type determine the corresponding relative
+    URI path and relative parent path containing URI ones.
 
-class ProcessHasBeenStartedAlready(Exception):
+    Arguments:
+        uri:
+            An absolute URI path:
+            /results/file.txt
+            /file.txt
+
+            or a relative URI path:
+            ../results/file.txt
+            ./results/file.txt
+            results/file.txt
+            ./file.txt
+            file.txt
+
+            to a file.
+
+    Returns:
+        A tuple of :class:`pathlib.Path` relative URI path and
+        :class:`pathlib.Path` relative parent path containing URI ones.
+    """
+    # If URI starts with '/', i.e., it is absolute,
+    # e.g., /file.txt
+    if pathlib.Path(uri).is_absolute():
+        uri_path = pathlib.Path(uri)
+        parent_path = uri_path.parent
+        relative_uri_path = uri_path.relative_to('/')
+        relative_parent_path = parent_path.relative_to('/')
+    # If URI does not start with '/', i.e., it is relative,
+    # e.g., file.txt
+    else:
+        relative_uri_path = pathlib.Path(uri)
+        relative_parent_path = relative_uri_path.parent
+
+    return (
+        relative_uri_path,
+        relative_parent_path,
+    )
+
+
+class DirectoryHasNotBeenCreated(Exception):
     pass
 
 
@@ -47,9 +88,13 @@ class ProcessHasBeenStartedAlready(Exception):
 # ? IObjectConfig
 
 class IObject(ABC):
-    # ??? Name, dirpath=None, filepath=None - obligitary attributes
-    # I work with this attrs in IRunner
-    # ??? Is this a good approach
+
+    def __init__(self, name: str):
+        # If running an object assumes to have some output files produced,
+        # e.g. dump or stats files, dirpath to store the results should be
+        # specified, otherwise it's None.
+        self.name = name
+        self.dirpath = None
 
     @classmethod
     @abstractmethod
@@ -63,21 +108,16 @@ class IObject(ABC):
 
 class Tshark(IObject):
 
-    def __init__(self, interface: str, port: str, filename: str, dirpath: str):
-        # if the object assumes to produce some output like dump files, stats files,
-        # dirpath should be specified
-        # TODO: Make dirpath optional, make check that dirpath != None and 
-        # only then add -w option
-        self.name = 'tshark'
+    def __init__(self, interface: str, port: str, filepath: str):
+        # super(Tshark, self).__init__()
+        super().__init__('tshark')
+        # self.name = 'tshark'
         self.interface = interface
         self.port = port
-        self.filename = filename
-        # TODO: pathlib.Path
-        self.dirpath = dirpath
-        # TODO: Convert to pathlib.Path
-        # filepath = self.dirpath / self.filename
-        # ? property
-        self.filepath = self.dirpath + '/' + self.filename + '.pcapng'
+        # filepath must be relative
+        self.filepath, self.dirpath = get_relative_paths(filepath)
+        # TODO: Make a validator
+        assert self.filepath.is_file()
 
     @classmethod
     def from_config(cls, config: dict):
@@ -86,15 +126,13 @@ class Tshark(IObject):
         config = {
             'interface': 'en0',
             'port': 4200,
-            'filename': 'tshark_dump',
-            'dirpath': '_results',
+            'filepath': './dump.pcapng',
         }
         """
         return cls(
             config['interface'],
             config['port'],
-            config['filename'],
-            config['dirpath']
+            config['filepath']
         )
 
     def make_args(self):
@@ -222,13 +260,12 @@ class SrtTestMessaging(IObject):
         return args
 
 
-### IRunner (as of now, IProcess) - process, thread, etc.
-# ? IObjectRunner, ITaskRunner
+### IRunner - IObjectRunner
 
 class IRunner(ABC):
     @staticmethod
     @abstractmethod
-    def _create_directory(dirpath: str):
+    def _create_directory(dirpath: pathlib.Path):
         pass
 
     @classmethod
@@ -255,19 +292,21 @@ class IRunner(ABC):
 
 class Subprocess(IRunner):
 
-    def __init__(self, obj):
+    def __init__(self, obj: IObject):
         self.obj = obj
 
-        self.process = None
+        self.process = Process(self.obj.name, self.obj.make_args())
         self.is_started = False
 
+
     @staticmethod
-    def _create_directory(dirpath: str):
+    def _create_directory(dirpath: pathlib.Path):
         logger.info(f'Creating a directory for saving results: {dirpath}')
-        dirpath = pathlib.Path(dirpath)
+        if dirpath == pathlib.Path('.'):
+            logger.info('Directory already exists')
+            return
         if dirpath.exists():
-            # shutil.rmtree(dirpath)
-            logger.info('Already exists')
+            logger.info('Directory already exists')
             return
         dirpath.mkdir(parents=True)
         logger.info('Created successfully')
@@ -277,37 +316,76 @@ class Subprocess(IRunner):
         return cls(obj)
 
     def start(self):
+        """ 
+        Raises:
+            ValueError
+            ProcessNotStarted
+        """
         logger.info(f'Starting on-premises: {self.obj.name}')
 
         if self.is_started:
-            raise ValueError(f'Process has been started already: {self.obj.name}, {self.process}')
+            # ? Maybe Object has been started or tshark has been started
+            raise ValueError(
+                f'{self.obj.name} has been started already: {self.process} '
+                f'Start can not be done'
+            )
 
         if self.obj.dirpath != None:
             self._create_directory(self.obj.dirpath)
+        
+        try:
+            self.process.start()
+        except (ValueError, ProcessNotStarted):
+            logger.error(f'Failed to start: {self.obj.name}', exc_info=True)
+            raise
 
-        # TODO: Try, except + rename to start_subprocess + rename exceptions inside
-        self.process = shared.create_process(self.obj.name, self.obj.make_args())
         self.is_started = True
 
         logger.info(f'Started successfully: {self.obj.name}, {self.process}')
 
     def stop(self):
+        """ 
+        Raises:
+            ValueError
+            ProcessNotStopped
+        """
         # TODO: use get_status method in order to check whether the process is running or not
         # instead of currently implemented logic in cleanup_process
         # TODO: change cleanup function to have only one input - process
         logger.info(f'Stopping on-premises: {self.obj.name}, {self.process}')
 
         if not self.is_started:
-            raise ValueError(f'Process has not been started yet: {self.obj.name}')
+            raise ValueError(
+                f'{self.obj.name} has not been started yet.'
+                f'Stop can not be done'
+            )
 
-        shared.cleanup_process((self.obj.name, self.process))
+        # !!! Stop here
+        try:
+            self.process.stop()
+        except (ValueError, ProcessNotStopped):
+            logger.error(f'Failed to stop: {self.obj.name}, {self.process}', exc_info=True)
+            raise
+
+        # ? Test this
+        # self.is_started = False
+        
         logger.info(f'Stopped successfully: {self.obj.name}, {self.process}')
 
     def get_status(self):
-        # TODO: Adapt process_is_running()
-        # is_running, returncode = shared.process_is_running(self.process)
-        # return is_running
-        pass
+        logger.info(f'Getting the status: {self.obj.name}, {self.process}')
+
+        if not self.is_started:
+            raise ValueError(
+                f'{self.obj.name} has not been started yet. '
+                f"Can't get the status"
+            )
+
+        status, _ = self.process.get_status()
+        print('aha')
+        print(status)
+        return status
+        
 
     def collect_results(self):
         logger.info('Collecting results')
@@ -507,8 +585,7 @@ def create_experiment_config(stop_after: int, ignore_stop_order: bool=True):
     tshark_config = {
         'interface': 'en0',
         'port': 4200,
-        'filename': 'tshark_snd',
-        'dirpath': '_results',
+        'filepath': './dump.pcapng',
     }
     tshark_runner_config = None
     config['tasks']['0'] = create_task_config(
@@ -522,21 +599,20 @@ def create_experiment_config(stop_after: int, ignore_stop_order: bool=True):
     tshark_config = {
         'interface': 'eth0',
         'port': 4200,
-        'filename': 'tshark_rcv',
-        'dirpath': '_results_remote',
+        'filepath': './dump.pcapng',
     }
     tshark_runner_config = {
         'username': 'msharabayko',
         'host': '137.135.164.27',
     }
-    config['tasks']['1'] = create_task_config(
-        'tshark', 
-        tshark_config, 
-        'ssh-subprocess', 
-        tshark_runner_config,
-        None,
-        sleep_after_stop
-    )
+    # config['tasks']['1'] = create_task_config(
+    #     'tshark', 
+    #     tshark_config, 
+    #     'ssh-subprocess', 
+    #     tshark_runner_config,
+    #     None,
+    #     sleep_after_stop
+    # )
 
     srt_test_msg_config = {
         'path': '/Users/msharabayko/projects/srt/srt-maxlovic/_build',
@@ -618,6 +694,7 @@ class SingleExperimentRunner:
             obj = self.factory.create_object(task_config['obj_type'], task_config['obj_config'])
             obj_runner = self.factory.create_runner(obj, task_config['runner_type'], task_config['runner_config'])
             obj_runner.start()
+            obj_runner.get_status()
             self.tasks += [(obj, obj_runner, task_config['sleep_after_stop'], task_config['stop_order'])]
             if task_config['sleep_after_start'] is not None:
                 logger.info(f"[SingleExperimentRunner] Sleeping {task_config['sleep_after_start']} s")
@@ -653,11 +730,16 @@ class SingleExperimentRunner:
         for _, obj_runner, _, _ in self.tasks:
             obj_runner.collect_results()
 
+    def _clean_up(self):
+        # In case of exception raised and catched - do clean up
+        # Stop already started processes
+        pass
+
 
 if __name__ == '__main__':
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format='%(asctime)-15s [%(levelname)s] %(message)s',
     )
 
@@ -672,9 +754,21 @@ if __name__ == '__main__':
     # and then config file for the experiment will be built in a function and parameters will be adjusted
     config = create_experiment_config(stop_after)
 
-    exp_runner = SingleExperimentRunner(factory, config)
-    exp_runner.start()
-    logger.info(f'Sleeping {stop_after} s ...')
-    time.sleep(stop_after)
-    exp_runner.stop()
-    exp_runner.collect_results()
+    for task, task_config in config['tasks'].items():
+        obj = factory.create_object(task_config['obj_type'], task_config['obj_config'])
+        print(obj.make_args())
+        obj_runner = factory.create_runner(obj, task_config['runner_type'], task_config['runner_config'])
+        obj_runner.start()
+        time.sleep(10)
+        obj_runner.get_status()
+        obj_runner.stop()
+        obj_runner.get_status()
+
+
+
+    # exp_runner = SingleExperimentRunner(factory, config)
+    # exp_runner.start()
+    # logger.info(f'Sleeping {stop_after} s ...')
+    # time.sleep(stop_after)
+    # exp_runner.stop()
+    # exp_runner.collect_results()
