@@ -337,3 +337,28 @@ The script runs [Bandwidth Loop Test](#bandwidth-loop-test) iteratively at defin
 ### <a name="iterative-filecc-loop-test"></a> Iterative File CC Loop Test
 
 The script runs [File CC Loop Test](#filecc-loop-test) iteratively at defined time periods. Use `--iterations` option to set up the number of iterations and `--interval` option to set up the time period between iterations in seconds. The setting should be provided within `filecc-loop-test` section of a config file.
+
+# srt-xtransmit support
+
+In order to run `srt-xtransmit` testing application please use `--app` option. Note that it is an experimental implementation and `srt-xtransmit` support has been tested primarily for File CC loop test and Iterative File CC loop test when running only 1 sender (the default number of senders).
+
+For File CC loop test please use the command
+```
+python perform_test.py filecc_loop_test --app=srt-xtransmit --collect-stats --run-tshark --results-dir=_res config.ini 
+```
+
+For Iterative File CC loop test please run the command
+```
+python perform_combined_test.py iterative_filecc_loop_test --app=srt-xtransmit --collect-stats --run-tshark --results-dir=_res_iter --iterations=5 --interval=20 config.ini
+```
+
+Use `filecc-loop-test-xtransmit` config section in order to set message size, available bandwidth, and time to stream the data
+```
+[filecc-loop-test-xtransmit]
+; Message size: 1456B, 4MB, 8MB
+msg_size = 1456B
+; Available bandwidth (bytes)
+bandwidth = 125000000
+; Time to stream (s).
+time_to_stream = 20
+```

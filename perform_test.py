@@ -69,7 +69,7 @@ def get_query(attrs_values):
     return f'{"&".join(query_elements)}'
 
 
-def start_sender(
+def start_sender_msg(
     number,
     path_to_srt: str,
     host: str,
@@ -80,7 +80,7 @@ def start_sender(
     collect_stats: bool=False,
     results_dir: pathlib.Path=None
 ):
-    name = f'srt sender {number}'
+    name = f'srt sender {number} - messaging'
     logger.info(f'Starting on a local machine: {name}\r')
 
     args = []
@@ -111,7 +111,7 @@ def start_sender(
     return (name, snd_srt_process)
 
 
-def start_receiver(
+def start_receiver_msg(
     ssh_host: str, 
     ssh_username: str, 
     path_to_srt: str,
@@ -134,7 +134,7 @@ def start_receiver(
             A list of srt-test-messaging application options in a format
             [('-msgsize', '1456'), ('-reply', '0'), ('-printmsg', '0')].
     """
-    name = 'srt receiver'
+    name = 'srt receiver - messaging'
     logger.info(f'Starting {name} on a remote machine: {ssh_host}')
     args = []
     args += shared.SSH_COMMON_ARGS
@@ -164,7 +164,184 @@ def start_receiver(
     return (name, process)
 
 
+def start_sender_xtransmit(
+    number,
+    path_to_srt: str,
+    host: str,
+    port: str,
+    attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    description: str=None,
+    collect_stats: bool=False,
+    results_dir: pathlib.Path=None
+):
+    # ./srt-xtransmit generate "srt://$IP:4200?transtype=file&messageapi=1&rcvbuf=625000000&sndbuf=625000000&fc=60000" 
+    # --msgsize 1456 --duration 1min --statsfreq 100ms --statsfile "az-euw-usw-filecc-take-$TAKE-snd.csv"
+
+    name = f'srt sender {number} - xtransmit'
+    logger.info(f'Starting on a local machine: {name}\r')
+
+    args = []
+    args += [f'{path_to_srt}/srt-xtransmit', 'generate']
+
+    if attrs_values is not None:
+        # FIXME: But here there is a problem with "" because sender has been
+        # started locally, not via SSH
+        args += [f'srt://{host}:{port}?{get_query(attrs_values)}']
+    else:
+        args += [f'srt://{host}:{port}']
+
+    if options_values is not None:
+        for option, value in options_values:
+            args += [option, value]
+
+    if collect_stats:
+        stats_file = results_dir / f'{description}-stats-snd-{number}.csv'
+        args += [
+            '--statsfreq', '100',
+            '--statsfile', stats_file,
+        ]
+    
+    process = shared.create_process(name, args)
+    logger.info(f'Started successfully: {name}\r')
+    return (name, process)
+
+
+def start_receiver_xtransmit(
+    ssh_host: str, 
+    ssh_username: str, 
+    path_to_srt: str,
+    host: str,
+    port: str,
+    attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    description: str=None,
+    collect_stats: bool=False,
+    results_dir: pathlib.Path=None
+):
+    # ./srt-xtransmit receive "srt://:4200?transtype=file&messageapi=1&rcvbuf=625000000&sndbuf=625000000&fc=60000" 
+    # --msgsize 1456 --statsfreq 100ms --statsfile "az-euw-usw-filecc-take-$TAKE-rcv.csv"
+
+    name = 'srt receiver - xtransmit'
+    logger.info(f'Starting {name} on a remote machine: {ssh_host}')
+    args = []
+    args += shared.SSH_COMMON_ARGS
+    args += [
+        f'{ssh_username}@{ssh_host}',
+        f'{path_to_srt}/srt-xtransmit',
+        'receive'
+    ]
+
+    if attrs_values is not None:
+        # FIXME: There is a problem with "" here, if to run an app via SSH,
+        # it does not work without ""
+        args += [f'"srt://{host}:{port}?{get_query(attrs_values)}"']
+    else:
+        args += [f'srt://{host}:{port}']
+
+    if options_values is not None:
+        for option, value in options_values:
+            args += [option, value]
+
+    if collect_stats:
+        stats_file = results_dir / f'{description}-stats-rcv.csv'
+        args += ['--statsfreq', '100']
+        args += ['--statsfile', stats_file]
+    
+    process = shared.create_process(name, args, True)
+    logger.info('Started successfully\r')
+    return (name, process)
+
+
+def start_sender(
+    app,
+    number,
+    path_to_srt: str,
+    host: str,
+    port: str,
+    attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    description: str=None,
+    collect_stats: bool=False,
+    results_dir: pathlib.Path=None
+):
+    if app == 'srt-test-messaging':
+        process = start_sender_msg(
+            number,
+            path_to_srt,
+            host,
+            port,
+            attrs_values,
+            options_values,
+            description,
+            collect_stats,
+            results_dir
+        )
+    elif app == 'srt-xtransmit':
+        process = start_sender_xtransmit(
+            number,
+            path_to_srt,
+            host,
+            port,
+            attrs_values,
+            options_values,
+            description,
+            collect_stats,
+            results_dir
+        )
+    else:
+        raise Exception(f'{app} is not supported')
+
+    return process
+
+
+def start_receiver(
+    app,
+    ssh_host: str, 
+    ssh_username: str, 
+    path_to_srt: str,
+    host: str,
+    port: str,
+    attrs_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    options_values: typing.Optional[typing.List[typing.Tuple[str, str]]]=None,
+    description: str=None,
+    collect_stats: bool=False,
+    results_dir: pathlib.Path=None
+):
+    if app == 'srt-test-messaging':
+        process = start_receiver_msg(
+            ssh_host,
+            ssh_username,
+            path_to_srt,
+            host,
+            port,
+            attrs_values,
+            options_values,
+            description,
+            collect_stats,
+            results_dir
+        )
+    elif app == 'srt-xtransmit':
+        process = start_receiver_xtransmit(
+            ssh_host,
+            ssh_username,
+            path_to_srt,
+            host,
+            port,
+            attrs_values,
+            options_values,
+            description,
+            collect_stats,
+            results_dir
+        )
+    else:
+        raise Exception(f'{app} is not supported')
+
+    return process
+
+
 def start_several_senders(
+    app,
     quantity: int,
     mode: str,
     path_to_srt: str,
@@ -192,6 +369,7 @@ def start_several_senders(
     if quantity == 1 or mode == 'serial':
         for i in range(0, quantity):
             snd_srt_process = start_sender(
+                app,
                 i,
                 path_to_srt,
                 host,
@@ -210,6 +388,7 @@ def start_several_senders(
             future_senders = {
                 executor.submit(
                     start_sender, 
+                    app,
                     i,
                     path_to_srt,
                     host,
@@ -242,6 +421,7 @@ def start_several_senders(
 
 
 def perform_experiment(
+    app,
     global_config,
     exper_params: generators.ExperimentParams,
     rcv: str,
@@ -268,6 +448,7 @@ def perform_experiment(
         # Start SRT on a receiver side
         if rcv == 'remotely':
             rcv_srt_process = start_receiver(
+                app,
                 global_config.rcv_ssh_host, 
                 global_config.rcv_ssh_username, 
                 global_config.rcv_path_to_srt, 
@@ -297,6 +478,7 @@ def perform_experiment(
         # Start several SRT senders on a sender side to stream for
         # config.time_to_stream seconds
         sender_processes = start_several_senders(
+            app,
             snd_quantity,
             snd_mode,
             global_config.snd_path_to_srt,
@@ -356,83 +538,10 @@ def perform_experiment(
         logger.info('Done')
 
 
-@click.command()
-@click.argument(
-    'test_name',
-    type=click.Choice(TEST_NAMES)
-)
-@click.argument(
-    'config_filepath', 
-    type=click.Path(exists=True)
-)
-@click.option(
-    '--rcv', 
-    type=click.Choice(['manually', 'remotely']), 
-    default='remotely',
-    help=	'Start receiver manually or remotely via SSH. In case of '
-            'manual receiver start, please do not forget to do it '
-            'before running the script.',
-    show_default=True
-)
-@click.option(
-    '--snd-quantity', 
-    default=1,
-    help=   'Number of senders to start.',
-    show_default=True
-)
-@click.option(
-    '--snd-mode',
-    type=click.Choice(['serial', 'parallel']), 
-    default='parallel',
-    help=   'Start senders concurrently or in parallel.',
-    show_default=True
-)
-@click.option(
-    '--collect-stats', 
-    is_flag=True, 
-    help='Collect SRT statistics.'
-)
-@click.option(
-    '--run-tshark',
-    is_flag=True,
-    help='Run tshark.'
-)
-@click.option(
-    '--results-dir',
-    default='_results',
-    help=   'Directory to store results.',
-    show_default=True
-)
-def main(
-    test_name: str,
-    config_filepath: str,
-    rcv: str,
-    snd_quantity: int,
-    snd_mode: str,
-    collect_stats: bool,
-    run_tshark: bool,
-    results_dir: typing.Optional[pathlib.Path]=None
-):
-    # FIXME: This is a temporary solution for being able to run main() function
-    # outside this code. There is a problem with click:
-    # (TypeError): main() takes from 1 to 5 positional arguments but 9 were 
-    # given. File CC loop test can not be done.
-    # FIXME: Also there is a problem with printing docstring description 
-    # from main() function to terminal when running --help.
-    main_function(
-        test_name,
-        config_filepath,
-        rcv,
-        snd_quantity,
-        snd_mode,
-        collect_stats,
-        run_tshark,
-        results_dir
-    )
-
 def main_function(
     test_name: str,
     config_filepath: str,
+    app: str,
     rcv: str,
     snd_quantity: int,
     snd_mode: str,
@@ -482,9 +591,12 @@ def main_function(
     if test_name == TestName.bw_loop_test.value:
         test_config = generators.BandwidthLoopTestConfig.from_config_filepath(config_filepath)
         exper_params_generator = generators.bw_loop_test_generator(global_config, test_config)
-    if test_name == TestName.filecc_loop_test.value:
-        test_config = generators.FileCCLoopTestConfig.from_config_filepath(config_filepath)
-        exper_params_generator = generators.filecc_loop_test_generator(global_config, test_config)
+    if test_name == TestName.filecc_loop_test.value and app == 'srt-test-messaging':
+        test_config = generators.FileCCLoopTestConfigMsg.from_config_filepath(config_filepath)
+        exper_params_generator = generators.filecc_loop_test_generator_msg(global_config, test_config)
+    if test_name == TestName.filecc_loop_test.value and app == 'srt-xtransmit':
+        test_config = generators.FileCCLoopTestConfigXtransmit.from_config_filepath(config_filepath)
+        exper_params_generator = generators.filecc_loop_test_generator_xtransmit(global_config, test_config)
 
     try:
         if rcv == 'remotely':
@@ -529,6 +641,7 @@ def main_function(
     for exper_params in exper_params_generator:
         try:
             extra_time = perform_experiment(
+                app,
                 global_config,
                 exper_params,
                 rcv,
@@ -565,6 +678,84 @@ def main_function(
                 break
 
     return result
+
+
+@click.command()
+@click.argument(
+    'test_name',
+    type=click.Choice(TEST_NAMES)
+)
+@click.argument(
+    'config_filepath', 
+    type=click.Path(exists=True)
+)
+@click.option(
+    '--app',
+    type=click.Choice(['srt-test-messaging', 'srt-xtransmit']),
+    default='srt-test-messaging',
+    help='SRT application to run.',
+    show_default=True
+)
+@click.option(
+    '--rcv', 
+    type=click.Choice(['manually', 'remotely']), 
+    default='remotely',
+    help=	'Start receiver manually or remotely via SSH. In case of '
+            'manual receiver start, please do not forget to do it '
+            'before running the script.',
+    show_default=True
+)
+@click.option(
+    '--snd-quantity', 
+    default=1,
+    help=   'Number of senders to start.',
+    show_default=True
+)
+@click.option(
+    '--snd-mode',
+    type=click.Choice(['serial', 'parallel']), 
+    default='parallel',
+    help=   'Start senders concurrently or in parallel.',
+    show_default=True
+)
+@click.option(
+    '--collect-stats', 
+    is_flag=True, 
+    help='Collect SRT statistics.'
+)
+@click.option(
+    '--run-tshark',
+    is_flag=True,
+    help='Run tshark.'
+)
+@click.option(
+    '--results-dir',
+    default='_results',
+    help=   'Directory to store results.',
+    show_default=True
+)
+def main(
+    test_name: str,
+    config_filepath: str,
+    app: str,
+    rcv: str,
+    snd_quantity: int,
+    snd_mode: str,
+    collect_stats: bool,
+    run_tshark: bool,
+    results_dir: typing.Optional[pathlib.Path]=None
+):
+    main_function(
+        test_name,
+        config_filepath,
+        app,
+        rcv,
+        snd_quantity,
+        snd_mode,
+        collect_stats,
+        run_tshark,
+        results_dir
+    )
 
 
 if __name__ == '__main__':

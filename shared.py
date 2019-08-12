@@ -107,12 +107,14 @@ def create_process(name, args, via_ssh: bool=False):
     if via_ssh:
         time.sleep(SSH_CONNECTION_TIMEOUT + 1)
     else:
-        time.sleep(1)
+        time.sleep(5)
     logger.debug(f'Checking that the process has started successfully: {name}')
     is_running, returncode = process_is_running(process)
     if not is_running:
         raise ProcessHasNotBeenStartedSuccessfully(
-            f'{name}, returncode {returncode}, stderr: {process.stderr.readlines()}'
+            f'{name}, returncode {returncode}, '
+            f'stdout: {process.stdout.readlines()}, '
+            f'stderr: {process.stderr.readlines()}'
         )
 
     logger.debug(f'Started successfully: {name}')
@@ -188,7 +190,7 @@ def start_tshark(
     ssh_host: typing.Optional[str]=None
 ):
     name = 'tshark'
-    logger.info(f'Starting on a local machine: {name}')
+    logger.info(f'Starting on a local machine: {name}\r')
 
     args = []
     if start_via_ssh:
@@ -204,7 +206,7 @@ def start_tshark(
         '-w', filepath
     ]
     process = create_process(name, args)
-    logger.info(f'Started successfully: {name}')
+    logger.info(f'Started successfully: {name}\r')
     return (name, process)
 
 def calculate_extra_time(sender_processes):

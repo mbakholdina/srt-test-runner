@@ -88,6 +88,7 @@ def bw_filecc_loop_test(
 def iterative_test(
     combined_test_name,
     config_filepath: str,
+    app: str,
     snd_quantity: int,
     snd_mode: str,
     collect_stats: bool,
@@ -117,6 +118,7 @@ def iterative_test(
             perform_test.main_function(
                 test_name,
                 config_filepath,
+                app,
                 'remotely',
                 snd_quantity,
                 snd_mode,
@@ -146,6 +148,13 @@ def iterative_test(
 @click.argument(
     'config_filepath', 
     type=click.Path(exists=True)
+)
+@click.option(
+    '--app',
+    type=click.Choice(['srt-test-messaging', 'srt-xtransmit']),
+    default='srt-test-messaging',
+    help='SRT application to run.',
+    show_default=True
 )
 @click.option(
     '--snd-quantity', 
@@ -191,6 +200,7 @@ def iterative_test(
 def main(
     combined_test_name: str,
     config_filepath: str,
+    app: str,
     snd_quantity: int,
     snd_mode: str,
     collect_stats: bool,
@@ -213,6 +223,7 @@ def main(
         iterative_test(
             combined_test_name,
             config_filepath,
+            app,
             snd_quantity,
             snd_mode,
             collect_stats,

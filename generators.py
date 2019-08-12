@@ -78,9 +78,9 @@ def determine_msg_size(msg_size: str):
 
 
 @attr.s
-class FileCCLoopTestConfig:
+class FileCCLoopTestConfigMsg:
     """
-    File CC (Congestion Control) loop test config.
+    File CC (Congestion Control) loop test config (srt-test-messaging).
     """ 
     msg_size: int = attr.ib()
     bandwidth: int = attr.ib()
@@ -100,6 +100,28 @@ class FileCCLoopTestConfig:
             int(parsed_config['filecc-loop-test']['rtt']),
             parsed_config['filecc-loop-test']['congestion'].split(','),
             int(parsed_config['filecc-loop-test']['time_to_stream'])
+        )
+
+
+@attr.s
+class FileCCLoopTestConfigXtransmit:
+    """
+    File CC (Congestion Control) loop test config (srt-xtransmit).
+    """ 
+    msg_size: int = attr.ib()
+    bandwidth: int = attr.ib()
+    time_to_stream: int = attr.ib()
+
+    @classmethod
+    def from_config_filepath(cls, config_filepath: pathlib.Path):
+        parsed_config = configparser.ConfigParser()
+        with config_filepath.open('r', encoding='utf-8') as fp:
+            parsed_config.read_file(fp)
+
+        return cls(
+            determine_msg_size(parsed_config['filecc-loop-test-xtransmit']['msg_size']),
+            int(parsed_config['filecc-loop-test-xtransmit']['bandwidth']),
+            int(parsed_config['filecc-loop-test-xtransmit']['time_to_stream'])
         )
 
 
@@ -195,11 +217,10 @@ def calculate_buffer_size(msg_size, fc):
     return 125000000
 
 
-def filecc_loop_test_generator(
+def filecc_loop_test_generator_msg(
     global_config,
     test_config
 ):
-
     # TODO: Check whether it will work as a property of ExperimentParams
 
     for cc_algorithm in test_config.cc_algorithms:
@@ -229,6 +250,7 @@ def filecc_loop_test_generator(
             ('-printmsg', '0'),
             ('-repeat', str(repeat)),
         ]
+        
         description = f'{global_config.scenario}-alg-{global_config.algdescr}-CC-{cc_algorithm}-msgsize-{test_config.msg_size}'
         
         exper_params = ExperimentParams(
@@ -242,3 +264,45 @@ def filecc_loop_test_generator(
         )
 
         yield exper_params
+
+
+def filecc_loop_test_generator_xtransmit(
+    global_config,
+    test_config
+):
+
+    # ./srt-xtransmit generate "srt://$IP:4200?transtype=file&messageapi=1&rcvbuf=625000000&sndbuf=625000000&fc=60000" 
+    # --msgsize 1456 --duration 1min --statsfreq 100ms --statsfile "az-euw-usw-filecc-take-$TAKE-snd.csv"
+
+    # ./srt-xtransmit receive "srt://:4200?transtype=file&messageapi=1&rcvbuf=625000000&sndbuf=625000000&fc=60000" 
+    # --msgsize 1456 --statsfreq 100ms --statsfile "az-euw-usw-filecc-take-$TAKE-rcv.csv"
+
+    rcv_attrs_values = [
+        ('transtype', 'file'),
+        ('messageapi', '1'),
+        ('rcvbuf', '625000000'),
+        ('sndbuf', '625000000'),
+        ('fc', '60000'),
+    ]
+    rcv_options_values = [
+        ('--msgsize', str(test_config.msg_size)), 
+    ]
+    snd_attrs_values = rcv_attrs_values
+    snd_options_values = [
+        ('--msgsize', str(test_config.msg_size)), 
+        ('--duration', str(test_config.time_to_stream)),
+    ]
+
+    description = f'{global_config.scenario}-alg-{global_config.algdescr}-filecc-msgsize-{test_config.msg_size}'
+    
+    exper_params = ExperimentParams(
+        rcv_attrs_values,
+        rcv_options_values,
+        snd_attrs_values,
+        snd_options_values,
+        test_config.bandwidth * 8,
+        description,
+        test_config.time_to_stream
+    )
+
+    yield exper_params
