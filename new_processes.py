@@ -67,7 +67,7 @@ class Process:
             else:
                 self.process = subprocess.Popen(
                     self.args, 
-                    #stdin =subprocess.PIPE,
+                    stdin =subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     #universal_newlines=False,
@@ -149,9 +149,9 @@ class Process:
         status, _ = self.get_status()
         if status == ProcessStatus.running:
             # ? Do I need an ID here
-            raise ProcessNotKilled(f'{self.name}, id: {process.pid}')
+            raise ProcessNotKilled(f'{self.name}, id: {self.process.pid}')
             
-        logger.debug('Killed: {self.name}, {self.process}')
+        logger.debug(f'Killed: {self.name}, {self.process}')
 
 
     def stop(self):
