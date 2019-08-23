@@ -43,12 +43,12 @@ def start_sender(args, interval, n):
 
     try:
         for i in range(0, n):
-            if i < 2 or i > 5:
-                logger.info(f'Sending packet {i + 1}')
-                time.sleep(interval)
-                buffer[0] = 1 + i % 255
-                process.process.stdin.write(buffer)
-                process.process.stdin.flush()
+            # for debugging purposes: if i < 2 or i > 5:
+            logger.info(f'Sending packet {i + 1}')
+            time.sleep(interval)
+            buffer[0] = 1 + i % 255
+            process.process.stdin.write(buffer)
+            process.process.stdin.flush()
     except KeyboardInterrupt:
         logger.info('KeyboardInterrupt has been caught')
     finally:
@@ -60,7 +60,7 @@ def start_sender(args, interval, n):
         process.stop()
 
 
-def read_data(process):
+def read_data(process, interval):
     is_data_empty = True
     while is_data_empty:
         data = process.process.stdout.read(1316)
@@ -68,17 +68,16 @@ def read_data(process):
         if len(data) != 0:
             is_data_empty = False
 
-        time.sleep(1)
-        print('aha')
+        time.sleep(interval)
 
     return data
 
-def start_receiver(args, n):
+def start_receiver(args, interval, n):
     logger.info('Starting receiver')
     process = Process('receiver', args)
     process.start()
 
-    logger.info('!!! PLEASE START THE SENDER !!!')
+    logger.info('!!! PLEASE START THE SENDER WITH THE SAME N OR DURATION AND BITRATE VALUES !!!')
 
     i = 0
     packets_lost = 0
@@ -87,8 +86,7 @@ def start_receiver(args, n):
 
     try:
         while i < n:
-            logger.info('Waiting for data')
-            data = read_data(process)
+            data = read_data(process, interval)
             target_values[0] = 1 + i % 255
 
             message = f'Packet {i + 1}, size {len(data)} '
@@ -111,9 +109,10 @@ def start_receiver(args, n):
         if i != 0:
             logger.info(f'Packets expected: {n}')
             logger.info(f'Packets received: {i - packets_lost}')
+            logger.info(f'Packets lost: {packets_lost}')
             logger.info(f'Packets sent: {i}')
             logger.info(f'Packets not sent: {n - i}')
-            logger.info(f'Packets lost: {packets_lost}')
+            logger.info(f'Last packet received: {i}')
             # packets_lost * 100 / packets_sent
             logger.info(f'Packets lost, %: {round(packets_lost * 100 / i, 2)}')
 
@@ -133,14 +132,35 @@ def cli(debug):
         )
 
 
-# NOTE: This sub-commands are here for srt-live-transmit, better to split 
-# it in a separate file.
 @cli.command()
-@click.option('--ip', default='127.0.0.1', help='IP to call', show_default=True)
-@click.option('--port', default=4200, help='Port to call', show_default=True)
-@click.option('--duration', default=60, help='Duration, s', show_default=True)
-@click.option('--n', help='Number of packets', type=int)
-@click.option('--bitrate', help='Bitrate, Mbit/s', type=float)
+@click.option(
+    '--ip', 
+    default='127.0.0.1', 
+    help='IP to call', 
+    show_default=True
+)
+@click.option(
+    '--port', 
+    default=4200, 
+    help='Port to call', 
+    show_default=True
+)
+@click.option(
+    '--duration', 
+    default=60, 
+    help='Duration, s', 
+    show_default=True
+)
+@click.option(
+    '--n', 
+    help='Number of packets', 
+    type=int
+)
+@click.option(
+    '--bitrate', 
+    help='Bitrate, Mbit/s', 
+    type=float
+)
 @click.argument('path')
 def sender(ip, port, duration, n, bitrate, path):
     args = [
@@ -158,10 +178,28 @@ def sender(ip, port, duration, n, bitrate, path):
 
 
 @cli.command()
-@click.option('--port', default=4200, help='Port to listen', show_default=True)
-@click.option('--duration', default=60, help='Duration, s', show_default=True)
-@click.option('--n', help='Number of packets', type=int)
-@click.option('--bitrate', help='Bitrate, Mbit/s', type=float)
+@click.option(
+    '--port', 
+    default=4200, 
+    help='Port to listen', 
+    show_default=True
+)
+@click.option(
+    '--duration', 
+    default=60, 
+    help='Duration, s', 
+    show_default=True
+)
+@click.option(
+    '--n', 
+    help='Number of packets', 
+    type=int
+)
+@click.option(
+    '--bitrate', 
+    help='Bitrate, Mbit/s', 
+    type=float
+)
 @click.argument('path')
 def receiver(port, duration, n, bitrate, path):
     args = [
@@ -175,46 +213,7 @@ def receiver(port, duration, n, bitrate, path):
     if n is None:
         n = int(duration // interval) + 1
 
-    start_receiver(args, n)
-
-
-@cli.command()
-@click.option(
-    '--port',
-    default=4200,
-    help='Port to listen',
-    show_default=True
-)
-@click.option(
-    '--duration',
-    default=60,
-    help='Duration, s',
-    show_default=True
-)
-@click.option(
-    '--n',
-    help='Number of packets',
-    type=int
-)
-@click.option(
-    '--bitrate',
-    help='Bitrate, Mbit/s',
-    type=float
-)
-@click.argument('path')
-def re_sender(port, duration, n, bitrate, path):
-    args = [
-        f'{path}',
-        'file://con',
-        f'srt://:{port}?groupconnect=true'
-    ]
-    interval = calculate_interval(bitrate)
-    if n is None:
-        n = int(duration // interval) + 1
-
-    print(args)
-
-    start_sender(args, interval, n)
+    start_receiver(args, interval, n)
 
 
 @cli.command()
@@ -242,22 +241,62 @@ def re_sender(port, duration, n, bitrate, path):
     type=float
 )
 @click.argument('path')
-def re_receiver(node, duration, n, bitrate, path):
+def re_sender(node, duration, n, bitrate, path):
+    # sender, caller
+    # ../srt/srt-ethouris/_build/srt-test-live file://con -g srt://*?type=redundancy 127.0.0.1:4200
     args = [
         f'{path}',
+        'file://con',
+        '-g',
         f'srt://*?type=redundancy'
     ]
     args += node
-    args += [
-        '-g',
-        'file://con'
+    interval = calculate_interval(bitrate)
+    if n is None:
+        n = int(duration // interval) + 1
+
+    print(f'interval: {interval}, n: {n}')
+    start_sender(args, interval, n)
+
+
+@cli.command()
+@click.option(
+    '--port',
+    default=4200,
+    help='Port to listen',
+    show_default=True
+)
+@click.option(
+    '--duration',
+    default=60,
+    help='Duration, s',
+    show_default=True
+)
+@click.option(
+    '--n',
+    help='Number of packets',
+    type=int
+)
+@click.option(
+    '--bitrate',
+    help='Bitrate, Mbit/s',
+    type=float
+)
+@click.argument('path')
+def re_receiver(port, duration, n, bitrate, path):
+    # receiver, listener
+    # ../srt/srt-ethouris/_build/srt-test-live srt://:4200?groupconnect=true file://con
+    args = [
+        f'{path}',
+        f'srt://:{port}?groupconnect=true',
+        'file://con',
     ]
     interval = calculate_interval(bitrate)
     if n is None:
         n = int(duration // interval) + 1
 
-    print(args)
-    start_receiver(args, n)
+    print(f'interval: {interval}, n: {n}')
+    start_receiver(args, interval, n)
 
 
 if __name__ == '__main__':
