@@ -1,16 +1,17 @@
-# Script for testing redandancy feature
-# The original code ia taken from here 
-# https://github.com/Haivision/srt/pull/663
-# https://github.com/maxlovic/srt/blob/tests/apps-autotest/scripts/python/test-apps.py
 import logging
 import time
 
 import click
+import pandas as pd
 
 from new_processes import Process
 
 
 logger = logging.getLogger(__name__)
+
+
+PAYLOAD_SIZE = 1316
+MAXIMUM_SEQUENCE_NUMBER = 2 ** 32
 
 
 def _nodes_split(ctx, param, value):
@@ -19,18 +20,86 @@ def _nodes_split(ctx, param, value):
     return nodes
 
 
-def generate_buffer():
-    return bytearray([(1 + i % 255) for i in range(0, 1315)]) + bytearray([0])
+def generate_payload():
+    """ 
+    Generate payload of PAYLOAD_SIZE size of the following type:
+    
+    |<------------------- Payload Size ------------------------>|
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
+    | 1 | 2 | 3 |...|255| 1 | 2 | 3 |...|255|...|...|...|...| 0 |
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
+                                                              |
+                                                              \__Indicates the end of payload              
+    """
+    return bytearray([(1 + i % 255) for i in range(0, PAYLOAD_SIZE - 1)]) + bytearray([0])
+
+
+def insert_srcByte(payload, s):
+    """
+    Insert SrcByte, SrcTime in packet payload of type
+
+    |<------------------- Payload Size ------------------------>|
+    |<-- SrcByte -->|<-- SrcTime -->|                           |
+    |    4 bytes    |    4 bytes    |                           |
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
+    | x | x | x | x | x | x | x | x | 9 |10 |...|...|...|...| 0 |
+    +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
+                                                              |
+              0 byte at the end indicates the end of payload__/              
+
+    where 
+    SrcByte -- Packet Sequence Number applied at the source,
+    in units of payload bytes,
+    SrcTime -- the time of packet emission from the source,
+    in units of payload bytes (not yet implemented).
+
+    Attributes:
+        payload: 
+            Packet payload,
+        s:
+            the unique packet sequence number applied at the source,
+            in units of messages.          
+    """
+    payload[0] = s >> 24
+    payload[1] = (s >> 16) & 255
+    payload[2] = (s >> 8) & 255
+    payload[3] = (s >> 0) & 255
+    return payload
 
 
 def calculate_interval(bitrate):
+    """ 
+    Calculate interval between sending consecutive packets depending on
+    desired bitrate, in seconds.
+    """
     if bitrate is None:
         return 0.01
     else:
-        return (1316 * 8) / (bitrate * 1000000)
+        return (PAYLOAD_SIZE * 8) / (bitrate * 1000000)
 
 
-def start_sender(args, interval, n):
+def start_sender(args, interval, k):
+    """ 
+    Start sender (either srt-live-transmit or srt-test-live application) with
+    arguments `args` in order to generate and send `k` packets with `interval`
+    interval between consecutive packets.
+
+    generate packet --> stdin --> SRT
+
+    Examples for debugging purposes as per Section 7 of
+    https://tools.ietf.org/html/rfc4737#section-7
+    1. Example with a single packet reodered
+    sending_order_1 = [1, 2, 3, 5, 6, 7, 8, 4, 9, 10]
+    2. Example with two packets reodered
+    sending_order_2 = [1, 2, 3, 4, 7, 5, 6, 8, 9, 10]
+    3. Example with three packets reodered
+    sending_order_3 = [1, 2, 3, 7, 8, 9, 10, 4, 5, 6, 11]
+    4. Example with a single packet reodered and two duplicate packets
+    sending_order_1_dup = [1, 2, 3, 5, 6, 7, 8, 4, 9, 10, 10, 6]
+    """
+    if k > MAXIMUM_SEQUENCE_NUMBER:
+        logger.error('The number of packets exceeds the maximum possible packet sequence number')
+
     logger.info('Starting sender')
     process = Process('sender', args)
     process.start()
@@ -39,83 +108,175 @@ def start_sender(args, interval, n):
     # to establish the connection
     time.sleep(1)
 
-    buffer = generate_buffer()
+    payload = generate_payload()
 
     try:
-        for i in range(0, n):
-            # for debugging purposes: if i < 2 or i > 5:
-            logger.info(f'Sending packet {i + 1}')
+        for s in range(1, k + 1):
+            logger.info(f'Sending packet {s}')
             time.sleep(interval)
-            buffer[0] = 1 + i % 255
-            process.process.stdin.write(buffer)
+            payload_srcByte = insert_srcByte(payload, s)
+            process.process.stdin.write(payload_srcByte)
             process.process.stdin.flush()
     except KeyboardInterrupt:
-        logger.info('KeyboardInterrupt has been caught')
+        logger.info('KeyboardInterrupt has been caught. Cleaning up ...')
     finally:
         # Sleep for 1s in order to give some time for sender to deliver 
         # the remain portion of packets at the end of experiment
         time.sleep(1)
         logger.info('Stopping sender')
-        # TODO: Do not forget about fixing the bug in srt-live-transmit
         process.stop()
 
 
 def read_data(process, interval):
-    is_data_empty = True
-    while is_data_empty:
-        data = process.process.stdout.read(1316)
+    """ 
+    Read data of `PAYLOAD_SIZE` size from stdout of a process `process`.
+    There are three possible cases:
+    - no data in stdout when the transmission has not been started yet
+    or has been finished already,
+    - there is data, however it's b'', the reason is a possible bug in test 
+    application,
+    - there is a packet received.
+    """
+    while True:
+        # If there is no data in stdout, the code will hang here
+        data = process.process.stdout.read(PAYLOAD_SIZE)
 
         if len(data) != 0:
-            is_data_empty = False
+            break
 
         time.sleep(interval)
 
     return data
 
-def start_receiver(args, interval, n):
+
+def type_p_reodered_ratio_stream(df: pd.DataFrame):
+    """ 
+    Type-P-Reodered-Ratio-Stream metric as per Section 4.1 of 
+    https://tools.ietf.org/html/rfc4737#section-4.1
+
+    The ratio of reodered packets to received packets.
+
+    R = (Count of packets with Type-P-Reordered=TRUE) / (L) * 100,
+
+    where L is the total number of packets received out of K packets sent. 
+    Recall that identical copies (duplicates) have been removed, so L <= K. 
+    """
+    assert df['s@Dst'].is_unique 
+    return round(df['Type-P-Reodered'].sum() / len(df.index) * 100, 2)
+
+
+def sequence_discontinuities(df: pd.DataFrame):
+    """ 
+    Calculates the number of sequence discontinuities and their 
+    total size in packets as per Section 3.4 of 
+    https://tools.ietf.org/html/rfc4737#section-3.4
+
+    Recall that identical copies (duplicates) have been removed.
+    """
+    assert df['s@Dst'].is_unique 
+    return (df['Seq Disc'].sum(), df['Seq Disc Size'].sum()) 
+
+
+def start_receiver(args, interval, k):
+    """ 
+    Start receiver (either srt-live-transmit or srt-test-live application) with
+    arguments `args` in order to receive `k` packets that have been sent by 
+    a sender with `interval` interval between consecutive packets and analyze
+    received data knowing the algorithm of packets generation at a sender side.
+
+    SRT --> stdout --> analyze received packets
+    """
+    if k > MAXIMUM_SEQUENCE_NUMBER:
+        logger.error('The number of packets exceeds the maximum possible packet sequence number')
+
     logger.info('Starting receiver')
     process = Process('receiver', args)
     process.start()
 
     logger.info('!!! PLEASE START THE SENDER WITH THE SAME N OR DURATION AND BITRATE VALUES !!!')
 
-    i = 0
-    packets_lost = 0
-    buffer = generate_buffer()
-    target_values = buffer.copy()
+    payload = generate_payload()
+    # NextExp -- the next expected sequence number at the destination,
+    # in units of messages. The stored value in NextExp is determined 
+    # from a previously arriving packet.
+    # next_exp = 0
+    next_exp = 1
+    # List of dictionaries for storing received packets info
+    dicts = []
 
     try:
-        while i < n:
-            data = read_data(process, interval)
-            target_values[0] = 1 + i % 255
+        # NOTE: On one hand, the number of actually arrived packets can be less then
+        # the number of sent packets k because of losses; on the other hand,
+        # duplicates can make it greater than k. As of now, we will stop the experiment
+        # once k packets are received, however some percentage of k can be introduced
+        # for checking the possibility of receiving duplicate packets.
+        for i in range(1, k + 1):
+            received_packet = read_data(process, interval)
+            src_byte = received_packet[:4]
+            s = int.from_bytes(src_byte, byteorder='big')
+            logger.info(f'Received packet {s}')
+            previous_next_exp = next_exp
 
-            message = f'Packet {i + 1}, size {len(data)} '
-            if target_values == data:
-                logger.info(message + 'is valid')
-            else:
-                logger.error(message + 'is invalid')
-                logger.info(f'Received: {data}')
-                logger.info(f'Expected: {target_values}')
-                dif = data[0] - target_values[0]
-                packets_lost += + dif
-                i += dif
-            i += 1
+            if s >= next_exp:
+                # If s >= next_exp, packet s is in-order. In this case, next_exp
+                # is set to s+1 for comparison with the next packet to arrive.
+                if s > next_exp:
+                    # Some packets in the original sequence have not yet arrived,
+                    # and there is a sequence discontinuity assotiated with packet s.
+                    # The size of this discontinuty is s-next_exp, equal to the 
+                    # number of packets presently missing, either reodered or lost.
+                    seq_discontinuty = True
+                    seq_discontinuty_size = s - next_exp
+                else:
+                    # When s = next_exp, the original sequence has been maintained,
+                    # and there is no discontinuty present. 
+                    seq_discontinuty = False
+                next_exp = s + 1
+                type_p_reodered = False
+            else:  
+                # When s < next_exp, the packet is reodered. In this case the
+                # next_exp value does not change.
+                type_p_reodered = True
+                seq_discontinuty = False
+
+            if not seq_discontinuty:
+                seq_discontinuty_size = 0
+
+            dicts += [{
+                's@Dst': s,
+                'NextExp': previous_next_exp,
+                'SrcByte': src_byte,
+                'Dst Order': i,
+                'Type-P-Reodered': type_p_reodered,
+                'Seq Disc': seq_discontinuty,
+                'Seq Disc Size': seq_discontinuty_size,
+            }]
     except KeyboardInterrupt:
-        logger.info('KeyboardInterrupt has been caught')
+        logger.info('KeyboardInterrupt has been caught. Cleaning up ...')
     finally:
         logger.info('Stopping receiver')
         process.stop()
-        
-        if i != 0:
-            logger.info(f'Packets expected: {n}')
-            logger.info(f'Packets received: {i - packets_lost}')
-            logger.info(f'Packets lost: {packets_lost}')
-            logger.info(f'Packets sent: {i}')
-            logger.info(f'Packets not sent: {n - i}')
-            logger.info(f'Last packet received: {i}')
-            # packets_lost * 100 / packets_sent
-            logger.info(f'Packets lost, %: {round(packets_lost * 100 / i, 2)}')
 
+        if len(dicts) == 0:
+            logger.info('No packets received')
+            return
+
+        logger.info('Experiment results: \n')
+        df = pd.DataFrame(dicts)
+        packets_received = len(df.index)
+        # Remove duplicates
+        df.drop_duplicates(subset ='s@Dst', keep = 'first', inplace = True)
+        l = len(df.index)
+        assert l <= k
+        duplicates = packets_received - l
+        seq_discontinuities, total_size = sequence_discontinuities(df)
+
+        print(df)
+        print(f'\nPackets Received: {packets_received}')
+        print(f'Duplicates: {duplicates}')
+        print(f'Reodered Packet Ratio: {type_p_reodered_ratio_stream(df)} %')
+        print(f'Sequence Discontinuities: {seq_discontinuities}, total size: {total_size} packet(s)')
+        
 
 @click.group()
 @click.option('--debug/--no-debug', default=False)
