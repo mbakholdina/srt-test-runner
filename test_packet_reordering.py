@@ -221,7 +221,7 @@ def start_receiver(args, interval_s, k):
 
     logger.info(
         'Please the start sender with 1) the same value of n or duration '
-        'and bitrate, 2) with the same params ...'
+        'and bitrate, 2) with the same attributes ...'
     )
 
     payload = generate_payload()
@@ -356,14 +356,14 @@ def cli(debug):
     type=float
 )
 @click.option(
-    '--params',
-    help='SRT parameters to pass within query. Format: "key1=value1&key2=value2"'
+    '--attrs',
+    help='SRT attributes to pass within query. Format: "key1=value1&key2=value2"'
 )
 @click.argument('path')
-def sender(ip, port, duration, n, bitrate, params, path):
+def sender(ip, port, duration, n, bitrate, attrs, path):
     srt_str = f'srt://{ip}:{port}?nakreport=0&linger=0'
-    if params:
-        srt_str += f'&{params}'
+    if attrs:
+        srt_str += f'&{attrs}'
 
     args = [
         f'{path}',
@@ -405,14 +405,14 @@ def sender(ip, port, duration, n, bitrate, params, path):
     type=float
 )
 @click.option(
-    '--params',
-    help='SRT parameters to pass within query. Format: "key1=value1&key2=value2"'
+    '--attrs',
+    help='SRT attributes to pass within query. Format: "key1=value1&key2=value2"'
 )
 @click.argument('path')
-def receiver(port, duration, n, bitrate, params, path):
+def receiver(port, duration, n, bitrate, attrs, path):
     srt_str = f'srt://:{port}?nakreport=0&linger=0'
-    if params:
-        srt_str += f'&{params}'
+    if attrs:
+        srt_str += f'&{attrs}'
 
     args = [
         f'{path}',
@@ -455,16 +455,16 @@ def receiver(port, duration, n, bitrate, params, path):
     type=float
 )
 @click.option(
-    '--params',
-    help='SRT parameters to pass within query. Format: "key1=value1&key2=value2"'
+    '--attrs',
+    help='SRT attributes to pass within query. Format: "key1=value1&key2=value2"'
 )
 @click.argument('path')
-def re_sender(node, duration, n, bitrate, params, path):
+def re_sender(node, duration, n, bitrate, attrs, path):
     # sender, caller
     # ../srt/srt-ethouris/_build/srt-test-live file://con -g srt://*?type=redundancy 127.0.0.1:4200
     srt_str = f'srt://*?type=redundancy&nakreport=0&linger=0'
-    if params:
-        srt_str += f'&{params}'
+    if attrs:
+        srt_str += f'&{attrs}'
 
     args = [
         f'{path}',
@@ -506,16 +506,16 @@ def re_sender(node, duration, n, bitrate, params, path):
     type=float
 )
 @click.option(
-    '--params',
-    help='SRT parameters to pass within query. Format: "key1=value1&key2=value2"'
+    '--attrs',
+    help='SRT attributes to pass within query. Format: "key1=value1&key2=value2"'
 )
 @click.argument('path')
-def re_receiver(port, duration, n, bitrate, params, path):
+def re_receiver(port, duration, n, bitrate, attrs, path):
     # receiver, listener
     # ../srt/srt-ethouris/_build/srt-test-live srt://:4200?groupconnect=true file://con
     srt_str = f'srt://:{port}?groupconnect=true&nakreport=0&linger=0'
-    if params:
-        srt_str += f'&{params}'
+    if attrs:
+        srt_str += f'&{attrs}'
 
     args = [
         f'{path}',
