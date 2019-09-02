@@ -220,8 +220,8 @@ def start_receiver(args, interval_s, k):
     process.start()
 
     logger.info(
-        'Please the start sender with 1) the same value of n or duration '
-        'and bitrate, 2) with the same attributes ...'
+        'Please start a sender with 1) the same value of n or duration '
+        'and bitrate, 2) the same attributes ...'
     )
 
     payload = generate_payload()
