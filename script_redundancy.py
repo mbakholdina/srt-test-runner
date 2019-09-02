@@ -1,3 +1,8 @@
+# Script for testing packet reordering. The original idea is taken from
+# https://github.com/Haivision/srt/pull/663
+# https://github.com/maxlovic/srt/blob/tests/apps-autotest/scripts/python/test-apps.py
+
+import datetime as dt
 import logging
 import time
 
@@ -70,18 +75,31 @@ def insert_srcByte(payload, s):
 def calculate_interval(bitrate):
     """ 
     Calculate interval between sending consecutive packets depending on
-    desired bitrate, in seconds.
+    desired bitrate, in seconds with microseconds accuracy.
+
+    Attributes:
+        bitrate:
+            Bitrate, Mbit/s.
     """
     if bitrate is None:
+        # Corresponds to 1.05 Mbit/s
         return 0.01
     else:
-        return (PAYLOAD_SIZE * 8) / (bitrate * 1000000)
+        return round((PAYLOAD_SIZE * 8) / (bitrate * 1000000), 6)
 
 
-def start_sender(args, interval, k):
+def calculate_target_time(interval_us):
+    # Known issue to consider
+    # https://stackoverflow.com/questions/12448592/how-to-add-delta-to-python-datetime-time
+    now = dt.datetime.now().time()
+    delta = dt.timedelta(microseconds = interval_us)
+    target_time = (dt.datetime.combine(dt.date(1,1,1),now) + delta).time()
+    return target_time
+
+def start_sender(args, interval_s, k):
     """ 
     Start sender (either srt-live-transmit or srt-test-live application) with
-    arguments `args` in order to generate and send `k` packets with `interval`
+    arguments `args` in order to generate and send `k` packets with `interval_s`
     interval between consecutive packets.
 
     generate packet --> stdin --> SRT
@@ -109,16 +127,24 @@ def start_sender(args, interval, k):
     time.sleep(1)
 
     payload = generate_payload()
-
+    interval_us = int(interval_s * 1000000)
+    assert 0 <= interval_us < 1000000
+    
     try:
         for s in range(1, k + 1):
+            target_time = calculate_target_time(interval_us)
+        
             logger.info(f'Sending packet {s}')
-            time.sleep(interval)
             payload_srcByte = insert_srcByte(payload, s)
             process.process.stdin.write(payload_srcByte)
             process.process.stdin.flush()
+
+            while (dt.datetime.now().time() < target_time):
+                pass
     except KeyboardInterrupt:
         logger.info('KeyboardInterrupt has been caught. Cleaning up ...')
+    except Exception as e:
+        logger.error(e)
     finally:
         # Sleep for 1s in order to give some time for sender to deliver 
         # the remain portion of packets at the end of experiment
@@ -127,7 +153,7 @@ def start_sender(args, interval, k):
         process.stop()
 
 
-def read_data(process, interval):
+def read_data(process, interval_s):
     """ 
     Read data of `PAYLOAD_SIZE` size from stdout of a process `process`.
     There are three possible cases:
@@ -144,7 +170,7 @@ def read_data(process, interval):
         if len(data) != 0:
             break
 
-        time.sleep(interval)
+        time.sleep(interval_s)
 
     return data
 
@@ -177,11 +203,11 @@ def sequence_discontinuities(df: pd.DataFrame):
     return (df['Seq Disc'].sum(), df['Seq Disc Size'].sum()) 
 
 
-def start_receiver(args, interval, k):
+def start_receiver(args, interval_s, k):
     """ 
     Start receiver (either srt-live-transmit or srt-test-live application) with
     arguments `args` in order to receive `k` packets that have been sent by 
-    a sender with `interval` interval between consecutive packets and analyze
+    a sender with `interval_s` interval between consecutive packets and analyze
     received data knowing the algorithm of packets generation at a sender side.
 
     SRT --> stdout --> analyze received packets
@@ -211,7 +237,7 @@ def start_receiver(args, interval, k):
         # once k packets are received, however some percentage of k can be introduced
         # for checking the possibility of receiving duplicate packets.
         for i in range(1, k + 1):
-            received_packet = read_data(process, interval)
+            received_packet = read_data(process, interval_s)
             src_byte = received_packet[:4]
             s = int.from_bytes(src_byte, byteorder='big')
             logger.info(f'Received packet {s}')
@@ -270,12 +296,16 @@ def start_receiver(args, interval, k):
         assert l <= k
         duplicates = packets_received - l
         seq_discontinuities, total_size = sequence_discontinuities(df)
+        # This value can be also calculated as the difference between total
+        # sequence discontinuities size minus packets reodered
+        packets_lost = k - l
 
         print(df)
         print(f'\nPackets Received: {packets_received}')
         print(f'Duplicates: {duplicates}')
         print(f'Reodered Packet Ratio: {type_p_reodered_ratio_stream(df)} %')
         print(f'Sequence Discontinuities: {seq_discontinuities}, total size: {total_size} packet(s)')
+        print(f'Packets Lost: {packets_lost}')
         
 
 @click.group()
