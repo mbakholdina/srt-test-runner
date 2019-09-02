@@ -467,9 +467,10 @@ def re_sender(node, duration, n, bitrate, attrs, path):
         f'{path}',
         'file://con',
         '-g',
-        srt_str
+        srt_str,
     ]
     args += node
+    args += ['-v']
     interval = calculate_interval(bitrate)
     if n is None:
         n = int(duration // interval) + 1
@@ -517,6 +518,7 @@ def re_receiver(port, duration, n, bitrate, attrs, path):
         f'{path}',
         srt_str,
         'file://con',
+        '-v'
     ]
     interval = calculate_interval(bitrate)
     if n is None:
