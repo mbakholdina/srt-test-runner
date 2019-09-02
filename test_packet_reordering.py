@@ -34,7 +34,7 @@ def generate_payload():
     | 1 | 2 | 3 |...|255| 1 | 2 | 3 |...|255|...|...|...|...| 0 |
     +---+---+---+---+---+---+---+---+---+---+---+---+---+   +---+
                                                               |
-                                                              \__Indicates the end of payload              
+              0 byte at the end indicates the end of payload__/             
     """
     return bytearray([(1 + i % 255) for i in range(0, PAYLOAD_SIZE - 1)]) + bytearray([0])
 
@@ -364,7 +364,6 @@ def sender(ip, port, duration, n, bitrate, attrs, path):
     srt_str = f'srt://{ip}:{port}?nakreport=0&linger=0'
     if attrs:
         srt_str += f'&{attrs}'
-
     args = [
         f'{path}',
         'file://con',
@@ -413,7 +412,6 @@ def receiver(port, duration, n, bitrate, attrs, path):
     srt_str = f'srt://:{port}?nakreport=0&linger=0'
     if attrs:
         srt_str += f'&{attrs}'
-
     args = [
         f'{path}',
         srt_str,
@@ -465,7 +463,6 @@ def re_sender(node, duration, n, bitrate, attrs, path):
     srt_str = f'srt://*?type=redundancy&nakreport=0&linger=0'
     if attrs:
         srt_str += f'&{attrs}'
-
     args = [
         f'{path}',
         'file://con',
@@ -516,7 +513,6 @@ def re_receiver(port, duration, n, bitrate, attrs, path):
     srt_str = f'srt://:{port}?groupconnect=true&nakreport=0&linger=0'
     if attrs:
         srt_str += f'&{attrs}'
-
     args = [
         f'{path}',
         srt_str,
