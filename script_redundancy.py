@@ -219,7 +219,10 @@ def start_receiver(args, interval_s, k):
     process = Process('receiver', args)
     process.start()
 
-    logger.info('!!! PLEASE START THE SENDER WITH THE SAME N OR DURATION AND BITRATE VALUES !!!')
+    logger.info(
+        'Please the start sender with 1) the same value of n or duration '
+        'and bitrate, 2) with the same params ...'
+    )
 
     payload = generate_payload()
     # NextExp -- the next expected sequence number at the destination,
@@ -352,12 +355,20 @@ def cli(debug):
     help='Bitrate, Mbit/s', 
     type=float
 )
+@click.option(
+    '--params',
+    help='SRT parameters to pass within query. Format: "key1=value1&key2=value2"'
+)
 @click.argument('path')
-def sender(ip, port, duration, n, bitrate, path):
+def sender(ip, port, duration, n, bitrate, params, path):
+    srt_str = f'srt://{ip}:{port}?nakreport=0&linger=0'
+    if params:
+        srt_str += f'&{params}'
+
     args = [
         f'{path}',
         'file://con',
-        f'srt://{ip}:{port}?nakreport=0&linger=0',
+        srt_str,
         # '-v', 
         # '-loglevel:error'
     ]
@@ -365,6 +376,8 @@ def sender(ip, port, duration, n, bitrate, path):
     if n is None:
         n = int(duration // interval) + 1
 
+    logger.info(f'interval: {interval}, n: {n}')
+    logger.info(f'args: {args}')
     start_sender(args, interval, n)
 
 
@@ -391,11 +404,19 @@ def sender(ip, port, duration, n, bitrate, path):
     help='Bitrate, Mbit/s', 
     type=float
 )
+@click.option(
+    '--params',
+    help='SRT parameters to pass within query. Format: "key1=value1&key2=value2"'
+)
 @click.argument('path')
-def receiver(port, duration, n, bitrate, path):
+def receiver(port, duration, n, bitrate, params, path):
+    srt_str = f'srt://:{port}?nakreport=0&linger=0'
+    if params:
+        srt_str += f'&{params}'
+
     args = [
         f'{path}',
-        f'srt://:{port}?nakreport=0&linger=0',
+        srt_str,
         'file://con',
         # '-v', 
         # '-loglevel:error'
@@ -404,6 +425,8 @@ def receiver(port, duration, n, bitrate, path):
     if n is None:
         n = int(duration // interval) + 1
 
+    logger.info(f'interval: {interval}, n: {n}')
+    logger.info(f'args: {args}')
     start_receiver(args, interval, n)
 
 
@@ -431,22 +454,31 @@ def receiver(port, duration, n, bitrate, path):
     help='Bitrate, Mbit/s',
     type=float
 )
+@click.option(
+    '--params',
+    help='SRT parameters to pass within query. Format: "key1=value1&key2=value2"'
+)
 @click.argument('path')
-def re_sender(node, duration, n, bitrate, path):
+def re_sender(node, duration, n, bitrate, params, path):
     # sender, caller
     # ../srt/srt-ethouris/_build/srt-test-live file://con -g srt://*?type=redundancy 127.0.0.1:4200
+    srt_str = f'srt://*?type=redundancy&nakreport=0&linger=0'
+    if params:
+        srt_str += f'&{params}'
+
     args = [
         f'{path}',
         'file://con',
         '-g',
-        f'srt://*?type=redundancy'
+        srt_str
     ]
     args += node
     interval = calculate_interval(bitrate)
     if n is None:
         n = int(duration // interval) + 1
 
-    print(f'interval: {interval}, n: {n}')
+    logger.info(f'interval: {interval}, n: {n}')
+    logger.info(f'args: {args}')
     start_sender(args, interval, n)
 
 
@@ -473,20 +505,29 @@ def re_sender(node, duration, n, bitrate, path):
     help='Bitrate, Mbit/s',
     type=float
 )
+@click.option(
+    '--params',
+    help='SRT parameters to pass within query. Format: "key1=value1&key2=value2"'
+)
 @click.argument('path')
-def re_receiver(port, duration, n, bitrate, path):
+def re_receiver(port, duration, n, bitrate, params, path):
     # receiver, listener
     # ../srt/srt-ethouris/_build/srt-test-live srt://:4200?groupconnect=true file://con
+    srt_str = f'srt://:{port}?groupconnect=true&nakreport=0&linger=0'
+    if params:
+        srt_str += f'&{params}'
+
     args = [
         f'{path}',
-        f'srt://:{port}?groupconnect=true',
+        srt_str,
         'file://con',
     ]
     interval = calculate_interval(bitrate)
     if n is None:
         n = int(duration // interval) + 1
 
-    print(f'interval: {interval}, n: {n}')
+    logger.info(f'interval: {interval}, n: {n}')
+    logger.info(f'args: {args}')
     start_receiver(args, interval, n)
 
 
