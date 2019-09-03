@@ -59,7 +59,7 @@ class Process:
                     self.args, 
                     stdin =subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    # stderr=subprocess.PIPE,
                     universal_newlines=False,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
                     bufsize=1
@@ -69,7 +69,7 @@ class Process:
                     self.args, 
                     stdin =subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    # stderr=subprocess.PIPE,
                     #universal_newlines=False,
                     bufsize=1
                 )
