@@ -359,7 +359,10 @@ def cli(debug):
     '--attrs',
     help='SRT attributes to pass within query. Format: "key1=value1&key2=value2"'
 )
-@click.argument('path')
+@click.argument(
+    'path', 
+    type=click.Path(exists=True)
+)
 def sender(ip, port, duration, n, bitrate, attrs, path):
     srt_str = f'srt://{ip}:{port}?nakreport=0&linger=0'
     if attrs:
@@ -407,7 +410,10 @@ def sender(ip, port, duration, n, bitrate, attrs, path):
     '--attrs',
     help='SRT attributes to pass within query. Format: "key1=value1&key2=value2"'
 )
-@click.argument('path')
+@click.argument(
+    'path', 
+    type=click.Path(exists=True)
+)
 def receiver(port, duration, n, bitrate, attrs, path):
     srt_str = f'srt://:{port}?nakreport=0&linger=0'
     if attrs:
@@ -456,8 +462,22 @@ def receiver(port, duration, n, bitrate, attrs, path):
     '--attrs',
     help='SRT attributes to pass within query. Format: "key1=value1&key2=value2"'
 )
-@click.argument('path')
-def re_sender(node, duration, n, bitrate, attrs, path):
+@click.option(
+    '--ll', 
+    type=click.Choice(['fatal', 'error', 'note', 'warning', 'debug']), 
+    default='debug',
+    help='Minimum severity for logs',
+)
+@click.option(
+    '--lf', 
+    type=click.Path(),
+    help='File to send logs to'
+)
+@click.argument(
+    'path', 
+    type=click.Path(exists=True)
+)
+def re_sender(node, duration, n, bitrate, attrs, ll, lf, path):
     # sender, caller
     # ../srt/srt-ethouris/_build/srt-test-live file://con -g srt://*?type=redundancy 127.0.0.1:4200
     srt_str = f'srt://*?type=redundancy&nakreport=0&linger=0'
@@ -470,7 +490,11 @@ def re_sender(node, duration, n, bitrate, attrs, path):
         srt_str,
     ]
     args += node
-    args += ['-v']
+    if lf:
+        args += [
+            f'-ll {ll}',
+            f'-lf {lf}',
+        ]
     interval = calculate_interval(bitrate)
     if n is None:
         n = int(duration // interval) + 1
@@ -507,8 +531,22 @@ def re_sender(node, duration, n, bitrate, attrs, path):
     '--attrs',
     help='SRT attributes to pass within query. Format: "key1=value1&key2=value2"'
 )
-@click.argument('path')
-def re_receiver(port, duration, n, bitrate, attrs, path):
+@click.option(
+    '--ll', 
+    type=click.Choice(['fatal', 'error', 'note', 'warning', 'debug']), 
+    default='debug',
+    help='Minimum severity for logs',
+)
+@click.option(
+    '--lf', 
+    type=click.Path(),
+    help='File to send logs to'
+)
+@click.argument(
+    'path', 
+    type=click.Path(exists=True)
+)
+def re_receiver(port, duration, n, bitrate, attrs, ll, lf, path):
     # receiver, listener
     # ../srt/srt-ethouris/_build/srt-test-live srt://:4200?groupconnect=true file://con
     srt_str = f'srt://:{port}?groupconnect=true&nakreport=0&linger=0'
@@ -518,8 +556,12 @@ def re_receiver(port, duration, n, bitrate, attrs, path):
         f'{path}',
         srt_str,
         'file://con',
-        '-v'
     ]
+    if lf:
+        args += [
+            f'-ll {ll}',
+            f'-lf {lf}',
+        ]
     interval = calculate_interval(bitrate)
     if n is None:
         n = int(duration // interval) + 1
