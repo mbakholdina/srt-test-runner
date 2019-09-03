@@ -107,11 +107,13 @@ python test_packet_reordering.py --debug re-sender --duration 180 --bitrate 10 -
 ### On two machines
 
 ```
-python test_packet_reordering.py --debug re-receiver --duration 180 --bitrate 10 --attrs "latency=200&sndbuf=125000000&rcvbuf=125000000&fc=60000" --lf log.txt ../srt/srt-ethouris/_build/srt-test-live
+python test_packet_reordering.py --debug re-receiver --duration 180 --bitrate 10 --attrs "latency=200&sndbuf=125000000&rcvbuf=125000000&fc=60000" ../srt/srt-ethouris/_build/srt-test-live
 ```
 ```
-python test_packet_reordering.py --debug re-sender --duration 180 --bitrate 10 --attrs "latency=200&sndbuf=125000000&rcvbuf=125000000&fc=60000" --node 192.168.2.1:4200 --node 192.168.3.1:4200 --lf log.txt ../srt/srt-ethouris/_build/srt-test-live
+python test_packet_reordering.py --debug re-sender --duration 180 --bitrate 10 --attrs "latency=200&sndbuf=125000000&rcvbuf=125000000&fc=60000" --node 192.168.2.1:4200 --node 192.168.3.1:4200 ../srt/srt-ethouris/_build/srt-test-live
 ```
+
+Use `-ll`, `-lf` options to get logs from test-application for the purposes of debugging. In this case, make sure that `srt-test-live` application has been built with `-DENABLE_HEAVY_LOGGING=ON` enabled. Important to know: logs capturing affects the speed of data packets receiving which may result in a pretty big sequence number difference between received and sent packets (more than 1000 when usually it is around 100-200). It also affects the process of data receiving and results in appearance of sequence discontinuities and lost packets. It is expected behaviour and most probably related to the absence of free space in receiving buffer while producing log messages by the protocol. 
 
 # Notes
 
@@ -150,6 +152,7 @@ The traffic was measured using `iptraf` tool.
 
 # ToDo
 
+* If possible speed up data packets receiving at a receiver side,
 * Integrate the script in the CI/CD pipeline, [PR #663](https://github.com/Haivision/srt/pull/663) to start with,
 * Implement SrcTime (the time of packet emission from the source) inserted in a packet payload in order to be able to calculate DstTime, Delay, LateTime and other metrics related to sending and receiving packet times as per [RFC 4737 - Packet Reordering Metrics](https://tools.ietf.org/html/rfc4737),
 * Implement n-reordering metric calculation as per [Section 5 of RFC 4737  - Packet Reordering Metrics](https://tools.ietf.org/html/rfc4737#section-5),
