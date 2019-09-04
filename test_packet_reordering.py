@@ -133,7 +133,7 @@ def start_sender(args, interval_s, k):
     try:
         for s in range(1, k + 1):
             target_time = calculate_target_time(interval_us)
-        
+
             logger.info(f'Sending packet {s}')
             payload_srcByte = insert_srcByte(payload, s)
             process.process.stdin.write(payload_srcByte)
@@ -186,9 +186,18 @@ def type_p_reodered_ratio_stream(df: pd.DataFrame):
 
     where L is the total number of packets received out of K packets sent. 
     Recall that identical copies (duplicates) have been removed, so L <= K. 
+
+    Attributes:
+        df:
+            Dataframe with received packets information. Duplications
+            should be preliminarily removed.
+
+    Returns a tuple of (packets reodered, Type-P-Reodered-Ratio-Stream metric).
     """
     assert df['s@Dst'].is_unique 
-    return round(df['Type-P-Reodered'].sum() / len(df.index) * 100, 2)
+    packets_reodered = df['Type-P-Reodered'].sum()
+    packets_reodered_metric = round(packets_reodered / len(df.index) * 100, 4)
+    return (packets_reodered, packets_reodered_metric)
 
 
 def sequence_discontinuities(df: pd.DataFrame):
@@ -201,6 +210,62 @@ def sequence_discontinuities(df: pd.DataFrame):
     """
     assert df['s@Dst'].is_unique 
     return (df['Seq Disc'].sum(), df['Seq Disc Size'].sum()) 
+
+
+def calculate_metrics(df: pd.DataFrame, k: int):
+    """ 
+    Calculates different metrics based on the received packets info
+    and prints the results in terminal.
+    
+    Attributes:
+        df:
+            `pd.DataFrame` with information regarding received packets
+            (containing possible duplicates).
+        k:
+            Number of packets generated and sent by receiver.
+    """
+    packets_received = len(df.index)
+    # Remove duplicates from df
+    # l does not include duplicated packets, 
+    # k is the number of packets sent by receiver
+    df.drop_duplicates(subset ='s@Dst', keep = 'first', inplace = True)
+    l = len(df.index)
+    assert l <= k
+    duplicates = packets_received - l
+    duplicates_ratio = round(duplicates * 100 / packets_received, 4)
+    seq_discontinuities, total_size = sequence_discontinuities(df)
+    # This value can be also calculated as the difference between total
+    # sequence discontinuities size minus packets reodered
+    packets_lost = k - l
+    packets_lost_ratio = round(packets_lost * 100 / k, 4)
+    packets_reodered, packets_reodered_ratio = type_p_reodered_ratio_stream(df)
+
+    print(df)
+    print('\n')
+    
+    data_1 = [
+        ('Packets Received', packets_received, ),
+        ('Duplicates', duplicates, duplicates_ratio),
+        ('Packets Reodered', packets_reodered, packets_reodered_ratio),
+        ('Packets Lost', packets_lost, packets_lost_ratio)
+    ]
+    df_stats_1 = pd.DataFrame(data_1, columns = ['Metric', 'Number, packet(s)', 'Ratio, %'])
+    print(df_stats_1)
+    print('\n')
+
+    data_2 = [('Sequence Discontinuities', seq_discontinuities, total_size)]
+    df_stats_2 = pd.DataFrame(data_2, columns = ['Metric', 'Number', 'Total Size, packet(s)'])
+    print(df_stats_2)
+    print('\n')
+
+    print(f'Packets Received: {packets_received}')
+    print(f'Duplicates: {duplicates}')
+    print(f'Packets Reodered: {packets_reodered}')
+    print(f'Packets Lost: {packets_lost}')
+    print(f'Duplicates Ratio: {duplicates_ratio} %')
+    print(f'Reodered Packets Ratio: {packets_reodered_ratio} %')
+    print(f'Lost Packets Ratio: {packets_lost_ratio} %')
+    print(f'Sequence Discontinuities: {seq_discontinuities}, total size: {total_size} packet(s)')
 
 
 def start_receiver(args, interval_s, k):
@@ -292,24 +357,8 @@ def start_receiver(args, interval_s, k):
 
         logger.info('Experiment results: \n')
         df = pd.DataFrame(dicts)
-        packets_received = len(df.index)
-        # Remove duplicates
-        df.drop_duplicates(subset ='s@Dst', keep = 'first', inplace = True)
-        l = len(df.index)
-        assert l <= k
-        duplicates = packets_received - l
-        seq_discontinuities, total_size = sequence_discontinuities(df)
-        # This value can be also calculated as the difference between total
-        # sequence discontinuities size minus packets reodered
-        packets_lost = k - l
+        calculate_metrics(df, k)
 
-        print(df)
-        print(f'\nPackets Received: {packets_received}')
-        print(f'Duplicates: {duplicates}')
-        print(f'Reodered Packet Ratio: {type_p_reodered_ratio_stream(df)} %')
-        print(f'Sequence Discontinuities: {seq_discontinuities}, total size: {total_size} packet(s)')
-        print(f'Packets Lost: {packets_lost}')
-        
 
 @click.group()
 @click.option('--debug/--no-debug', default=False)
