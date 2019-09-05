@@ -98,10 +98,10 @@ python test_packet_reordering.py re-receiver --help
 ### Locally
 
 ```
-python test_packet_reordering.py --debug re-receiver --duration 180 --bitrate 10 --attrs "latency=200&sndbuf=125000000&rcvbuf=125000000&fc=60000" --lf log.txt ../srt/srt-ethouris/_build/srt-test-live
+python test_packet_reordering.py --debug re-receiver --duration 180 --bitrate 10 --attrs "latency=200&sndbuf=125000000&rcvbuf=125000000&fc=60000" ../srt/srt-ethouris/_build/srt-test-live
 ```
 ```
-python test_packet_reordering.py --debug re-sender --duration 180 --bitrate 10 --attrs "latency=200&sndbuf=125000000&rcvbuf=125000000&fc=60000" --node 127.0.0.1:4200 --lf log.txt ../srt/srt-ethouris/_build/srt-test-live
+python test_packet_reordering.py --debug re-sender --duration 180 --bitrate 10 --attrs "latency=200&sndbuf=125000000&rcvbuf=125000000&fc=60000" --node 127.0.0.1:4200 ../srt/srt-ethouris/_build/srt-test-live
 ```
 
 ### On two machines
