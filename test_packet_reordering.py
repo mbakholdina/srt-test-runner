@@ -224,6 +224,7 @@ def calculate_metrics(df: pd.DataFrame, k: int):
         k:
             Number of packets generated and sent by receiver.
     """
+    df_duplicates = df
     packets_received = len(df.index)
     # Remove duplicates from df
     # l does not include duplicated packets, 
@@ -266,6 +267,15 @@ def calculate_metrics(df: pd.DataFrame, k: int):
     print(f'Reodered Packets Ratio: {packets_reodered_ratio} %')
     print(f'Lost Packets Ratio: {packets_lost_ratio} %')
     print(f'Sequence Discontinuities: {seq_discontinuities}, total size: {total_size} packet(s)')
+
+    logger.info('Writing results to Excel file...')
+    FILEPATH = 'output.xlsx'
+    with pd.ExcelWriter(FILEPATH, engine='xlsxwriter') as writer:
+        df_duplicates.to_excel(writer, sheet_name='df_duplicates')
+        df.to_excel(writer, sheet_name='df_no_duplicates')
+        df_stats_1.to_excel(writer, sheet_name='stats_1')
+        df_stats_2.to_excel(writer, sheet_name='stats_2')
+    logger.info('Writing to Excel is finished')
 
 
 def start_receiver(args, interval_s, k):
