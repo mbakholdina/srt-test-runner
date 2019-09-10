@@ -106,13 +106,13 @@ def start_sender(args, interval_s, k):
 
     Examples for debugging purposes as per Section 7 of
     https://tools.ietf.org/html/rfc4737#section-7
-    1. Example with a single packet reodered
+    1. Example with a single packet reordered
     sending_order_1 = [1, 2, 3, 5, 6, 7, 8, 4, 9, 10]
-    2. Example with two packets reodered
+    2. Example with two packets reordered
     sending_order_2 = [1, 2, 3, 4, 7, 5, 6, 8, 9, 10]
-    3. Example with three packets reodered
+    3. Example with three packets reordered
     sending_order_3 = [1, 2, 3, 7, 8, 9, 10, 4, 5, 6, 11]
-    4. Example with a single packet reodered and two duplicate packets
+    4. Example with a single packet reordered and two duplicate packets
     sending_order_1_dup = [1, 2, 3, 5, 6, 7, 8, 4, 9, 10, 10, 6]
     """
     if k > MAXIMUM_SEQUENCE_NUMBER:
@@ -175,12 +175,12 @@ def read_data(process, interval_s):
     return data
 
 
-def type_p_reodered_ratio_stream(df: pd.DataFrame):
+def type_p_reordered_ratio_stream(df: pd.DataFrame):
     """ 
-    Type-P-Reodered-Ratio-Stream metric as per Section 4.1 of 
+    Type-P-Reordered-Ratio-Stream metric as per Section 4.1 of 
     https://tools.ietf.org/html/rfc4737#section-4.1
 
-    The ratio of reodered packets to received packets.
+    The ratio of reordered packets to received packets.
 
     R = (Count of packets with Type-P-Reordered=TRUE) / (L) * 100,
 
@@ -192,12 +192,12 @@ def type_p_reodered_ratio_stream(df: pd.DataFrame):
             Dataframe with received packets information. Duplications
             should be preliminarily removed.
 
-    Returns a tuple of (packets reodered, Type-P-Reodered-Ratio-Stream metric).
+    Returns a tuple of (packets reordered, Type-P-Reordered-Ratio-Stream metric).
     """
     assert df['s@Dst'].is_unique 
-    packets_reodered = df['Type-P-Reodered'].sum()
-    packets_reodered_metric = round(packets_reodered / len(df.index) * 100, 4)
-    return (packets_reodered, packets_reodered_metric)
+    packets_reordered = df['Type-P-Reordered'].sum()
+    packets_reordered_metric = round(packets_reordered / len(df.index) * 100, 4)
+    return (packets_reordered, packets_reordered_metric)
 
 
 def sequence_discontinuities(df: pd.DataFrame):
@@ -236,10 +236,10 @@ def calculate_metrics(df: pd.DataFrame, k: int):
     duplicates_ratio = round(duplicates * 100 / packets_received, 4)
     seq_discontinuities, total_size = sequence_discontinuities(df)
     # This value can be also calculated as the difference between total
-    # sequence discontinuities size minus packets reodered
+    # sequence discontinuities size minus packets reordered
     packets_lost = k - l
     packets_lost_ratio = round(packets_lost * 100 / k, 4)
-    packets_reodered, packets_reodered_ratio = type_p_reodered_ratio_stream(df)
+    packets_reordered, packets_reordered_ratio = type_p_reordered_ratio_stream(df)
 
     print(df)
     print('\n')
@@ -247,7 +247,7 @@ def calculate_metrics(df: pd.DataFrame, k: int):
     data_1 = [
         ('Packets Received', packets_received, ),
         ('Duplicates', duplicates, duplicates_ratio),
-        ('Packets Reodered', packets_reodered, packets_reodered_ratio),
+        ('Packets Reordered', packets_reordered, packets_reordered_ratio),
         ('Packets Lost', packets_lost, packets_lost_ratio)
     ]
     df_stats_1 = pd.DataFrame(data_1, columns = ['Metric', 'Number, packet(s)', 'Ratio, %'])
@@ -261,10 +261,10 @@ def calculate_metrics(df: pd.DataFrame, k: int):
 
     print(f'Packets Received: {packets_received}')
     print(f'Duplicates: {duplicates}')
-    print(f'Packets Reodered: {packets_reodered}')
+    print(f'Packets Reordered: {packets_reordered}')
     print(f'Packets Lost: {packets_lost}')
     print(f'Duplicates Ratio: {duplicates_ratio} %')
-    print(f'Reodered Packets Ratio: {packets_reodered_ratio} %')
+    print(f'Reordered Packets Ratio: {packets_reordered_ratio} %')
     print(f'Lost Packets Ratio: {packets_lost_ratio} %')
     print(f'Sequence Discontinuities: {seq_discontinuities}, total size: {total_size} packet(s)')
 
@@ -334,7 +334,7 @@ def start_receiver(args, interval_s, k):
                     # Some packets in the original sequence have not yet arrived,
                     # and there is a sequence discontinuity assotiated with packet s.
                     # The size of this discontinuty is s-next_exp, equal to the 
-                    # number of packets presently missing, either reodered or lost.
+                    # number of packets presently missing, either reordered or lost.
                     seq_discontinuty = True
                     seq_discontinuty_size = s - next_exp
                 else:
@@ -342,11 +342,11 @@ def start_receiver(args, interval_s, k):
                     # and there is no discontinuty present. 
                     seq_discontinuty = False
                 next_exp = s + 1
-                type_p_reodered = False
+                type_p_reordered = False
             else:  
-                # When s < next_exp, the packet is reodered. In this case the
+                # When s < next_exp, the packet is reordered. In this case the
                 # next_exp value does not change.
-                type_p_reodered = True
+                type_p_reordered = True
                 seq_discontinuty = False
 
             if not seq_discontinuty:
@@ -357,7 +357,7 @@ def start_receiver(args, interval_s, k):
                 'NextExp': previous_next_exp,
                 'SrcByte': src_byte,
                 'Dst Order': i,
-                'Type-P-Reodered': type_p_reodered,
+                'Type-P-Reordered': type_p_reordered,
                 'Seq Disc': seq_discontinuty,
                 'Seq Disc Size': seq_discontinuty_size,
             }]
