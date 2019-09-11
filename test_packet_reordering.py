@@ -212,7 +212,7 @@ def sequence_discontinuities(df: pd.DataFrame):
     return (df['Seq Disc'].sum(), df['Seq Disc Size'].sum()) 
 
 
-def calculate_metrics(df: pd.DataFrame, k: int):
+def calculate_print_metrics(df: pd.DataFrame, k: int):
     """ 
     Calculates different metrics based on the received packets info
     and prints the results in terminal.
@@ -267,6 +267,7 @@ def calculate_metrics(df: pd.DataFrame, k: int):
     print(f'Reordered Packets Ratio: {packets_reordered_ratio} %')
     print(f'Lost Packets Ratio: {packets_lost_ratio} %')
     print(f'Sequence Discontinuities: {seq_discontinuities}, total size: {total_size} packet(s)')
+    print('\n')
 
     # TODO: Does not work on CentOS
     # logger.info('Writing results to Excel file...')
@@ -278,7 +279,10 @@ def calculate_metrics(df: pd.DataFrame, k: int):
     #     df_stats_2.to_excel(writer, sheet_name='stats_2')
     # logger.info('Writing to Excel is finished')
 
-    logger.info('Writing results to a set of .csv files')
+    logger.info(
+        'Writing results to a set of .csv files: packets_duplicates.csv, '
+        'packets_no_duplicates.csv'
+    )
     df_duplicates.to_csv('packets_duplicates.csv')
     df.to_csv('packets_no_duplicates.csv')
     logger.info('Writing to .csv is finished')
@@ -325,6 +329,7 @@ def start_receiver(args, interval_s, k):
             src_byte = received_packet[:4]
             s = int.from_bytes(src_byte, byteorder='big')
             logger.info(f'Received packet {s}')
+            src_byte = src_byte.hex()
             previous_next_exp = next_exp
 
             if s >= next_exp:
@@ -355,7 +360,7 @@ def start_receiver(args, interval_s, k):
             dicts += [{
                 's@Dst': s,
                 'NextExp': previous_next_exp,
-                'SrcByte': src_byte,
+                'SrcByte (hex)': src_byte,
                 'Dst Order': i,
                 'Type-P-Reordered': type_p_reordered,
                 'Seq Disc': seq_discontinuty,
@@ -373,7 +378,7 @@ def start_receiver(args, interval_s, k):
 
         logger.info('Experiment results: \n')
         df = pd.DataFrame(dicts)
-        calculate_metrics(df, k)
+        calculate_print_metrics(df, k)
 
 
 @click.group()
