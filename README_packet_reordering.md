@@ -115,7 +115,7 @@ python test_packet_reordering.py --debug re-sender --duration 180 --bitrate 10 -
 
 Use `--ll`, `--lf` options to get logs from test-application for the purposes of debugging. In this case, make sure that `srt-test-live` application has been built with `-DENABLE_HEAVY_LOGGING=ON` enabled. Important to know: logs capturing affects the speed of data packets receiving which may result in a pretty big sequence number difference between received and sent packets (more than 1000 when usually it is around 100-200). It also affects the process of data receiving and results in appearance of sequence discontinuities and lost packets. It is expected behaviour and most probably related to the absence of free space in receiving buffer while producing log messages by the protocol. 
 
-As of now `stderr` of test application is not captured, so you can see the messages in a terminal as well as script's log messages. In order to capture all these messages to a file add `2>&1 | tee filepath` postfix to a command.
+As of now `stderr` of test application is not captured, so you can see the messages in a terminal as well as script's log messages. In order to capture all these messages to a file add `2>&1 | tee filepath` or `2>filepath` postfix to a command.
 
 # Notes
 
@@ -154,6 +154,8 @@ The traffic was measured using `iptraf` tool.
 
 # ToDo
 
+* Add passing SRT options through a command line,
+* Instead of printing the result dataframe with packets data, print pieces of this dataframe with problem places,
 * If possible speed up data packets receiving at a receiver side,
 * Integrate the script in the CI/CD pipeline, [PR #663](https://github.com/Haivision/srt/pull/663) to start with,
 * Implement SrcTime (the time of packet emission from the source) inserted in a packet payload in order to be able to calculate DstTime, Delay, LateTime and other metrics related to sending and receiving packet times as per [RFC 4737 - Packet Reordering Metrics](https://tools.ietf.org/html/rfc4737),
