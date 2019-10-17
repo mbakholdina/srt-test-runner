@@ -19,6 +19,7 @@ class GlobalConfig:
     rcv_ssh_username: str = attr.ib()
     rcv_path_to_srt: str = attr.ib()
     snd_path_to_srt: str = attr.ib()
+    rcv_tshark_iface: str = attr.ib()
     snd_tshark_iface: str = attr.ib()
     dst_host: str = attr.ib()
     dst_port: str = attr.ib()
@@ -36,6 +37,7 @@ class GlobalConfig:
             parsed_config['global']['rcv_ssh_username'],
             parsed_config['global']['rcv_path_to_srt'],
             parsed_config['global']['snd_path_to_srt'],
+            parsed_config['global']['rcv_tshark_iface'],
             parsed_config['global']['snd_tshark_iface'],
             parsed_config['global']['dst_host'],
             parsed_config['global']['dst_port'],

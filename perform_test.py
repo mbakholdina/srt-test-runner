@@ -106,6 +106,7 @@ def start_sender_msg(
             '-statsfile', stats_file,
         ]
     
+    print(args)
     snd_srt_process = shared.create_process(name, args)
     logger.info(f'Started successfully: {name}\r')
     return (name, snd_srt_process)
@@ -159,6 +160,7 @@ def start_receiver_msg(
         stats_file = results_dir / f'{description}-stats-rcv.csv'
         args += ['-statsfile', stats_file]
     
+    print(f'{args}\r')
     process = shared.create_process(name, args, True)
     logger.info('Started successfully\r')
     return (name, process)
@@ -202,6 +204,7 @@ def start_sender_xtransmit(
             '--statsfile', stats_file,
         ]
     
+    print(args)
     process = shared.create_process(name, args)
     logger.info(f'Started successfully: {name}\r')
     return (name, process)
@@ -248,6 +251,7 @@ def start_receiver_xtransmit(
         args += ['--statsfreq', '100']
         args += ['--statsfile', stats_file]
     
+    print(f'{args}\r')
     process = shared.create_process(name, args, True)
     logger.info('Started successfully\r')
     return (name, process)
@@ -445,6 +449,21 @@ def perform_experiment(
     """
     processes = []
     try:
+        # Start tshark on a receiver side
+        if rcv == 'remotely' && run_tshark:
+            filename = f'{exper_params.description}-rcv.pcapng'
+            rcv_tshark_process = shared.start_tshark(
+                global_config.rcv_tshark_iface, 
+                global_config.dst_port,
+                results_dir,
+                filename,
+                True,
+                global_config.rcv_ssh_username,
+                global_config.rcv_ssh_host
+            )
+            processes.append(rcv_tshark_process)
+            time.sleep(3)
+
         # Start SRT on a receiver side
         if rcv == 'remotely':
             rcv_srt_process = start_receiver(
@@ -501,15 +520,7 @@ def perform_experiment(
         extra_time = shared.calculate_extra_time(sender_processes)
         
         logger.info('Done\r')
-        # time.sleep(3)
         return extra_time
-
-        # if run_tshark:
-        #     shared.cleanup_process(snd_tshark_process)
-        #     time.sleep(3)
-        # if rcv == 'remotely':
-        #     shared.cleanup_process(rcv_srt_process)
-        #     time.sleep(3)
     except KeyboardInterrupt:
         logger.info('KeyboardInterrupt has been caught')
         raise

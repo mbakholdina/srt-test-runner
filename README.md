@@ -172,15 +172,16 @@ Depending on which test is being performed, an appropriate section `bw-loop-test
 ## Experiment Description and Test Setup
 
 For the time being, one experiment consists of the following steps:
-1. Start receiver manually or remotely via SSH depending on the value of `--rcv` option. In case of manual receiver start, it should be done before running the script,
-2. Start tshark application on a sender side depending on `--run-tshark` option.
-3. Start one or several SRT senders (`--snd-quantity` option) on a sender side to stream for `time_to_stream` seconds specified in an appropriate test section of config file. Senders can be started both in parallel or serial mode depending on `--snd-mode` option. However, some time adjustments and additional testing is needed for serial mode. Currently, only parallel mode is used.
-4. Sleep for `time_to_stream` seconds to wait while senders will finish the streaming and then check how many senders are still running.
-5. Calculate extra time spent on streaming.
+1. Start tshark application on a receiver remotely if both `--rcv=remotely` and `--run-tshark` option is on.
+2. Start receiver manually or remotely via SSH depending on the value of `--rcv` option. In case of manual receiver start, it should be done before running the script.
+3. Start tshark application on a sender side depending on `--run-tshark` option.
+4. Start one or several SRT senders (`--snd-quantity` option) on a sender side to stream for `time_to_stream` seconds specified in an appropriate test section of config file. Senders can be started both in parallel or serial mode depending on `--snd-mode` option. However, some time adjustments and additional testing is needed for serial mode. Currently, only parallel mode is used.
+5. Sleep for `time_to_stream` seconds to wait while senders will finish the streaming and then check how many senders are still running.
+6. Calculate extra time spent on streaming.
 
 `srt-test-messaging` testing application is used in this experiment. As mentioned above, receiver application can be started either manually, or on a remote machine whithin the script. For now, sender application is started locally on a machine where the script is running. Remote machine support is planned to be implemented.
 
-`tshark` application is runned in a separate process locally on a sender side to capture outcoming network traffic. Running `tshark` remotely via SSH is planned to be implemented.
+`tshark` application is runned in a separate process locally on a sender side to capture outcoming network traffic and remotely via SSH on a receiver side to capture incoming traffic.
 
 At the same time depending on `--collect-stats` option, `srt-test-messaging` testing application writes SRT core statistics to a .csv file in a directory specified within `--results-dir` option. Filename is generated within the script depending on test name and input parameters.
 

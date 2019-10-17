@@ -190,7 +190,10 @@ def start_tshark(
     ssh_host: typing.Optional[str]=None
 ):
     name = 'tshark'
-    logger.info(f'Starting on a local machine: {name}\r')
+    if start_via_ssh:
+        logger.info(f'Starting on a remote machine: {name}\r')
+    else:
+        logger.info(f'Starting locally: {name}\r')
 
     args = []
     if start_via_ssh:
@@ -201,10 +204,11 @@ def start_tshark(
     args += [
         'tshark', 
         '-i', interface, 
-        '-f', f'udp port {port}', 
+        '-f', f'"udp port {port}"' if start_via_ssh else f'udp port {port}',
         '-s', '1500', 
         '-w', filepath
     ]
+    print(f'{args}\r')
     process = create_process(name, args)
     logger.info(f'Started successfully: {name}\r')
     return (name, process)
