@@ -450,7 +450,7 @@ def perform_experiment(
     processes = []
     try:
         # Start tshark on a receiver side
-        if rcv == 'remotely' && run_tshark:
+        if rcv == 'remotely' and run_tshark:
             filename = f'{exper_params.description}-rcv.pcapng'
             rcv_tshark_process = shared.start_tshark(
                 global_config.rcv_tshark_iface, 
